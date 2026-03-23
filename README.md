@@ -4,6 +4,12 @@ Clean AI Paste is an Obsidian plugin designed to automatically clean up and form
 
 When copying text from AI web interfaces, the resulting paste in Obsidian often includes excessive blank lines, heavily bolded headers, and detached code block labels. This plugin intercepts the paste command, translates the HTML to native Markdown, and applies targeted formatting rules to keep your notes clean and readable.
 
+| Feature | Original AI Paste | Formatted With Clean AI Paste |
+| :--- | :--- | :--- |
+| **Headers** | `### **Introduction**` | `### Introduction` |
+| **Spacing** | `First sentence/paragraph.` <br><br> `Second sentence/paragraph.` | `First sentence/paragraph.` <br> `Second sentence/paragraph.` |
+| **Code Blocks** | `Python` <br> ` ``` ` <br> `print("Hello World!")` <br> ` ``` ` | ` ```python ` <br> `print("Hello World!")` <br> ` ``` ` |
+
 ## Features
 
 - **Removes Extra Blank Lines:** Condenses multiple line breaks and empty spaces into a single standard line break, without breaking list indentation.
