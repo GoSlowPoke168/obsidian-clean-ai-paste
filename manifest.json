@@ -5,6 +5,6 @@
 	"minAppVersion": "0.15.0",
 	"description": "Automatically formats pasted text from AI chats by stripping blank lines, unbolding headers, and fixing code blocks.",
 	"author": "Jeremy Hou",
-	"authorUrl": "",
+	"authorUrl": "https://github.com/GoSlowPoke168",
 	"isDesktopOnly": false
 }

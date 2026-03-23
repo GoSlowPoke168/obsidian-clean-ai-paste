@@ -1,0 +1,7 @@
+{
+    "id": "clean-ai-paste",
+    "name": "Clean AI Paste",
+    "author": "Jeremy Hou",
+    "description": "Automatically formats pasted text from AI chats by stripping blank lines, unbolding headers, and fixing code blocks.",
+    "repo": "GoSlowPoke168/obsidian-clean-ai-paste"
+}
