@@ -1,0 +1,10 @@
+{
+	"id": "clean-ai-paste",
+	"name": "Clean AI Paste",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Automatically formats pasted text from AI chats by stripping blank lines, unbolding headers, and fixing code blocks.",
+	"author": "Jeremy Hou",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}
