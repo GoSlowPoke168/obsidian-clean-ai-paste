@@ -6,12 +6,11 @@ When copying text from AI web interfaces, the resulting paste in Obsidian often 
 
 ## Features
 
-- **Smart Formatting Bypass:** Use `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (Mac) to bypass the plugin entirely and paste the exact original text.
 - **Removes Extra Blank Lines:** Condenses multiple line breaks and empty spaces into a single standard line break, without breaking list indentation.
-- **Protects Code Blocks:** Completely isolates triple-backtick code blocks during formatting so your code syntax, spacing, and indentation remain untouched.
 - **Fixes Language Headers:** Automatically detects detached code language labels (e.g., a line reading "Python" floating above a code block) and properly integrates them into the Markdown backticks (` ```python `).
 - **Unbolds Headers:** Automatically detects Markdown headers (e.g., `### Header`) and strips out asterisks (`**`) or underscores (`__`), while leaving bold text in your standard paragraphs intact.
-- **Preserves Native Formatting:** Leverages Obsidian's internal HTML-to-Markdown API to ensure lists, links, and standard text formatting survive the paste.
+- **Protects Code Blocks:** Completely isolates triple-backtick code blocks during formatting so your code syntax, spacing, and indentation remain untouched.
+- **Smart Formatting Bypass:** Use `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (Mac) to bypass the plugin entirely and paste the exact original text.
 
 ## How to Use
 
