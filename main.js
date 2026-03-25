@@ -19,15 +19,10 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                 try {
                     evt.preventDefault();
-                    
-                    let rawText = hasHtml 
+
+                    let rawText = hasHtml
                         ? htmlToMarkdown(clipboardData.getData('text/html'))
                         : clipboardData.getData('text/plain');
-
-                    // Normalize detached language labels
-                    rawText = rawText.replace(/(^|\n)([A-Za-z0-9+#\-_]+)\s*\n```([A-Za-z0-9+#\-_]*)\n/g, (match, p1, p2, p3) => {
-                        return p1 + '```' + (p3 || p2) + '\n';
-                    });
 
                     // Split text: Even indices are normal text, odd indices are code blocks
                     const textSegments = rawText.split(/(```[\s\S]*?```)/g);
@@ -35,6 +30,19 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     for (let i = 0; i < textSegments.length; i++) {
                         if (i % 2 === 0) {
                             let text = textSegments[i];
+
+                            // Normalize detached language labels
+                            if (i + 1 < textSegments.length) {
+                                let codeBlock = textSegments[i + 1];
+                                if (/^```\s*\n/.test(codeBlock)) {
+                                    let match = text.match(/(?:^|\n)([A-Za-z0-9+#\-_]+)\s*$/);
+                                    if (match) {
+                                        let lang = match[1];
+                                        text = text.substring(0, text.length - match[0].length) + (match[0].startsWith('\n') ? '\n' : '');
+                                        textSegments[i + 1] = codeBlock.replace(/^```\s*\n/, '```' + lang + '\n');
+                                    }
+                                }
+                            }
 
                             // Unbold Headers
                             text = text.replace(/^\s*(#+\s+)(.*)$/gm, (match, hashes, content) => hashes + content.replace(/\*\*|__/g, ''));
@@ -45,6 +53,9 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                             // Padding before Horizontal Line
                             text = text.replace(/([^\n])\n+(---)/g, '$1\n\n$2');
 
+                            // Padding after blockquote
+                            text = text.replace(/(^>.*$)\r?\n(\*\*)/gm, '$1\n\n$2');
+
                             // Protect Code Blocks & Horizontal Rules
                             if (i > 0) {
                                 // If the text comes after a code block
@@ -53,13 +64,13 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                                     text = '\n\n' + text.trimStart();
                                 } else {
                                     // Otherwise, no space after the code block
-                                    text = '\n' + text.trimStart(); 
+                                    text = '\n' + text.trimStart();
                                 }
                             }
-                            
+
                             if (i < textSegments.length - 1) {
                                 // Adds a new line before a codeblock
-                                text = text.trimEnd() + '\n\n'; 
+                                text = text.trimEnd() + '\n\n';
                             }
 
                             textSegments[i] = text;

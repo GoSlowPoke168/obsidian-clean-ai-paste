@@ -4,23 +4,23 @@ Clean AI Paste is an Obsidian plugin designed to automatically clean up and form
 
 When copying text from AI web interfaces, the resulting paste in Obsidian often includes excessive blank lines, heavily bolded headers, and detached code block labels. This plugin intercepts the paste command, translates the HTML to native Markdown, and applies targeted formatting rules to keep your notes clean and readable.
 
-| Feature | Original AI Paste | Formatted With Clean AI Paste |
-| :--- | :--- | :--- |
-| **Headers** | `### **Introduction**` | `### Introduction` |
-| **Spacing** | `First sentence/paragraph.` <br><br> `Second sentence/paragraph.` | `First sentence/paragraph.` <br> `Second sentence/paragraph.` |
-| **Code Blocks** | `Python` <br> ` ``` ` <br> `print("Hello World!")` <br> ` ``` ` | ` ```python ` <br> `print("Hello World!")` <br> ` ``` ` |
+| Feature         | Original AI Paste                                                 | Formatted With Clean AI Paste                                 |
+| :-------------- | :---------------------------------------------------------------- | :------------------------------------------------------------ |
+| **Headers**     | `### **Introduction**`                                            | `### Introduction`                                            |
+| **Spacing**     | `First sentence/paragraph.` <br><br> `Second sentence/paragraph.` | `First sentence/paragraph.` <br> `Second sentence/paragraph.` |
+| **Code Blocks** | `Python` <br> ` ``` ` <br> `print("Hello World!")` <br> ` ``` `   | ` ```python ` <br> `print("Hello World!")` <br> ` ``` `       |
 
 ## Features
 
 - **Removes Extra Blank Lines:** Condenses multiple line breaks and empty spaces into a single standard line break, without breaking list indentation.
-- **Fixes Language Headers:** Automatically detects detached code language labels (e.g., a line reading "Python" floating above a code block) and properly integrates them into the Markdown backticks (` ```python `).
+- **Fixes Language Headers for Codeblocks:** Automatically detects detached code language labels (e.g., a line reading "Python" floating above a code block) and properly integrates them into the Markdown backticks (` ```python `).
 - **Unbolds Headers:** Automatically detects Markdown headers (e.g., `### Header`) and strips out asterisks (`**`) or underscores (`__`), while leaving bold text in your standard paragraphs intact.
 - **Protects Code Blocks:** Completely isolates triple-backtick code blocks during formatting so your code syntax, spacing, and indentation remain untouched.
 - **Smart Formatting Bypass:** Use `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (Mac) to bypass the plugin entirely and paste the exact original text.
 
 ## How to Use
 
-Simply copy text from your AI tool of choice and paste it into Obsidian using standard paste (`Ctrl+V` or `Cmd+V`). The formatting happens instantly and automatically. 
+Simply copy text from your AI tool of choice and paste it into Obsidian using standard paste (`Ctrl+V` or `Cmd+V`). The formatting happens instantly and automatically.
 
 If you need to paste something exactly as it was copied without triggering the cleanup rules, use Obsidian's default "Paste as plain text" shortcut (`Ctrl+Shift+V` or `Cmd+Shift+V`).
 
