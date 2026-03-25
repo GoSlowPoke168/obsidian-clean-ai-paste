@@ -1,6 +1,6 @@
 "use strict";
 
-const { Plugin, htmlToMarkdown } = require('obsidian');
+const { Plugin, htmlToMarkdown, Notice } = require('obsidian');
 
 module.exports = class CleanAIPastePlugin extends Plugin {
     async onload() {
@@ -68,6 +68,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                     editor.replaceSelection(textSegments.join('').trim());
                 } catch (error) {
+                    new Notice("Clean AI Paste error: Could not format clipboard data.");
                     console.error("Clean AI Paste plugin error:", error);
                 }
             })
