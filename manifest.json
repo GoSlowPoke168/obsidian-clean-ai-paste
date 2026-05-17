@@ -3,7 +3,7 @@
 	"name": "Clean AI Paste",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Instantly turns messy AI output into clean Obsidian notes on paste. Removes excessive blank lines, fixes code blocks, headers, removes emojis,and more.",
+	"description": "Instantly turns messy AI output into clean Obsidian notes on paste. Removes excessive blank lines, fixes code blocks, headers, removes emojis, and more.",
 	"author": "Jeremy Hou",
 	"authorUrl": "https://github.com/GoSlowPoke168",
 	"isDesktopOnly": false
