@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
     addTrackingSignature: false,
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
     trackingSignatureEnd: "<!-- [AI Generated End] -->",
-    enableNotifications: true
+    enableNotifications: false
 }
 
 module.exports = class CleanAIPastePlugin extends Plugin {
@@ -27,10 +27,41 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
         this.addSettingTab(new CleanAIPasteSettingTab(this.app, this));
 
+        // Intercept Ctrl+Shift+V / Cmd+Shift+V at the keydown level.
+        this.registerDomEvent(document, 'keydown', async (keyEvt) => {
+            const isMod = keyEvt.ctrlKey || keyEvt.metaKey;
+            if (!isMod || !keyEvt.shiftKey || keyEvt.key.toLowerCase() !== 'v') return;
+
+            const activeEditor = this.app.workspace.activeEditor;
+            if (!activeEditor || !activeEditor.editor) return;
+
+            keyEvt.preventDefault();
+            keyEvt.stopPropagation();
+
+            try {
+                const items = await navigator.clipboard.read();
+                for (const item of items) {
+                    if (item.types.includes('text/html')) {
+                        const blob = await item.getType('text/html');
+                        const html = await blob.text();
+                        const markdown = htmlToMarkdown(html);
+                        activeEditor.editor.replaceSelection(markdown.trim());
+                        return;
+                    }
+                    if (item.types.includes('text/plain')) {
+                        const blob = await item.getType('text/plain');
+                        const text = await blob.text();
+                        activeEditor.editor.replaceSelection(text.trim());
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error("Clean AI Paste: Shift+V clipboard read failed", e);
+            }
+        });
+
         this.registerEvent(
             this.app.workspace.on('editor-paste', (evt, editor) => {
-                if (evt.shiftKey) return;
-
                 const clipboardData = evt.clipboardData;
                 if (!clipboardData || clipboardData.types.includes('Files')) return;
 
@@ -39,6 +70,8 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                 if (!hasHtml && !hasText) return;
 
+                if (evt.shiftKey) return;
+
                 try {
                     evt.preventDefault();
 
@@ -46,31 +79,36 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                         ? htmlToMarkdown(clipboardData.getData('text/html'))
                         : clipboardData.getData('text/plain');
 
-                    // Split text: Even indices are normal text, odd indices are code blocks
+                    // Split on fenced code blocks.
                     const textSegments = rawText.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$))/m);
 
                     for (let i = 0; i < textSegments.length; i++) {
                         if (i % 2 === 0) {
                             let text = textSegments[i];
 
-                            // Normalize detached language labels or remove redundant ones
+                            // Language label normalization
                             if (i + 1 < textSegments.length) {
                                 let codeBlock = textSegments[i + 1];
-                                let match = text.match(/(?:^|\n)[ \t]*([A-Za-z0-9+#\-_]+)\s*$/);
+                                const textTrimmed = text.trimEnd();
+                                const trailing = text.slice(textTrimmed.length);
 
+                                const match = textTrimmed.match(/(?:^|\n)([ \t]*)([A-Za-z0-9+#\-_]+)[ \t]*$/);
                                 if (match) {
-                                    let lang = match[1];
-                                    let prefixToKeep = match[0].startsWith('\n') ? '\n' : '';
+                                    const lang = match[2];
+                                    const prevNl = textTrimmed.lastIndexOf('\n');
+                                    const lastLine = prevNl === -1 ? textTrimmed : textTrimmed.slice(prevNl + 1);
 
-                                    if (/^[ \t]*```\s*\n/.test(codeBlock)) {
-                                        // Case 1: Code block has no label
-                                        text = text.substring(0, text.length - match[0].length) + prefixToKeep;
-                                        textSegments[i + 1] = codeBlock.replace(/^([ \t]*)```\s*\n/, '$1```' + lang + '\n');
-                                    } else {
-                                        // Case 2: Code block already has the EXACT SAME label (Claude redundant labels)
-                                        let cbMatch = codeBlock.match(/^[ \t]*```([a-zA-Z0-9+#\-_]+)\s*\n/);
-                                        if (cbMatch && cbMatch[1].toLowerCase() === lang.toLowerCase()) {
-                                            text = text.substring(0, text.length - match[0].length) + prefixToKeep;
+                                    if (lastLine.trim() === lang) {
+                                        let prefixToKeep = match[0].startsWith('\n') ? '\n' : '';
+
+                                        if (/^[ \t]*```\s*\n/.test(codeBlock)) {
+                                            text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
+                                            textSegments[i + 1] = codeBlock.replace(/^([ \t]*)```\s*\n/, '$1```' + lang + '\n');
+                                        } else {
+                                            const cbMatch = codeBlock.match(/^[ \t]*```([a-zA-Z0-9+#\-_]+)\s*\n/);
+                                            if (cbMatch && cbMatch[1].toLowerCase() === lang.toLowerCase()) {
+                                                text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
+                                            }
                                         }
                                     }
                                 }
@@ -79,72 +117,77 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                             // Unbold Headers
                             if (this.settings.unboldHeaders) {
                                 text = text.replace(/^\s*(?:\*\*|__)\s*(#+\s+.*?)\s*(?:\*\*|__)\s*$/gm, '$1');
-                                text = text.replace(/^\s*(#+\s+)(.*)$/gm, (match, hashes, content) => hashes + content.replace(/\*\*|__/g, ''));
+                                text = text.replace(/^\s*(#+\s+)(.*)$/gm, (m, hashes, content) =>
+                                    hashes + content.replace(/\*\*|__/g, '')
+                                );
                             }
 
-                            // Header Downgrade Level
+                            // Header downgrade
                             if (this.settings.headerDowngradeLevel > 0) {
-                                text = text.replace(/^\s*(#+)(\s+.*)$/gm, (match, hashes, content) => {
+                                text = text.replace(/^\s*(#+)(\s+.*)$/gm, (m, hashes, content) => {
                                     const newHashes = '#'.repeat(Math.min(6, hashes.length + this.settings.headerDowngradeLevel));
                                     return newHashes + content;
                                 });
                             }
 
-                            // Strips out AI padding spaces and removes spaces between new text, lists, and header lines
+                            // Condense blank lines
                             if (this.settings.condenseBlankLines) {
                                 text = text.replace(/\r?\n(?:[ \t\xA0]*\r?\n)+/g, '\n');
-                                // Also remove blank lines inside blockquotes
                                 text = text.replace(/^>[ \t]*\r?\n/gm, '');
                             }
 
-                            // Math delimiter conversion
+                            // Convert math delimiters
                             if (this.settings.convertMathDelimiters) {
-                                text = text.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$');
-                                text = text.replace(/\\\([\s\S]*?\\\)/g, match => {
-                                    return '$' + match.slice(2, -2) + '$';
-                                });
+                                // Display math: \[...\] → $$...$$
+                                text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
+                                // Inline math: \(...\) → $...$
+                                text = text.replace(/\\\(([^\n]*?(?:\n[^\n]*?){0,4}?)\\\)/g, (_, inner) => '$' + inner + '$');
                             }
 
-                            // Padding before Horizontal Line
+                            // Format horizontal rules
                             if (this.settings.formatHorizontalRules) {
                                 text = text.replace(/([^\n])\n+(---)/g, '$1\n\n$2');
+                                text = text.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
                             }
 
-                            // Padding before Tables
-                            text = text.replace(/([^\n|])\n+(\|.*\|)/g, '$1\n\n$2');
+                            // Table padding
+                            text = text.replace(/([^\n|])\n+(\|)/g, '$1\n\n$2');
+                            text = text.replace(/(\|[^\n]*\n)([^|\n])/g, '$1\n$2');
 
-                            // Padding after blockquote
+                            // Blockquote padding
                             text = text.replace(/(^>.*$)\r?\n([^>\n\r])/gm, '$1\n\n$2');
 
-                            // Strip Trailing Whitespaces
+                            // Strip trailing whitespaces
                             if (this.settings.stripTrailingWhitespaces) {
                                 text = text.replace(/[ \t]+$/gm, '');
                             }
 
-                            // Strip Emojis
+                            // Strip emojis
                             if (this.settings.stripEmojis) {
-                                text = text.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu, '').replace(/  +/g, ' ');
+                                text = text.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu, '')
+                                    .replace(/(\S)[ \t]{2,}/g, '$1 ');
                             }
 
-                            // Protect Code Blocks & Horizontal Rules
-                            if (i > 0) {
-                                // If the text comes after a code block
-                                if (this.settings.paddingAfterCodeblock || text.trimStart().startsWith('---')) {
-                                    // Blank line if a horizontal rule immediately follows
-                                    text = '\n' + text.trimStart();
-                                } else {
-                                    // Otherwise, no space after the code block
-                                    text = text.trimStart();
+                            // Code block padding
+                            if (i > 0 && i < textSegments.length - 1 && text.trim() === '') {
+                                text = '\n';
+                            } else {
+                                if (i > 0) {
+                                    if (this.settings.paddingAfterCodeblock || text.trimStart().startsWith('---')) {
+                                        text = '\n' + text.trimStart();
+                                    } else {
+                                        text = text.trimStart();
+                                    }
+                                }
+                                if (i < textSegments.length - 1) {
+                                    text = text.trimEnd() + (this.settings.paddingBeforeCodeblock ? '\n\n' : '\n');
                                 }
                             }
 
-                            if (i < textSegments.length - 1) {
-                                // Adds a new line before a codeblock
-                                text = text.trimEnd() + (this.settings.paddingBeforeCodeblock ? '\n\n' : '\n');
-                            }
-
                             textSegments[i] = text;
+
                         } else {
+                            // Odd segment = fenced code block. Strip over-indentation only.
                             let codeBlock = textSegments[i];
                             const match = codeBlock.match(/^([ \t]*)```/);
                             if (match && match[1].length > 0) {
@@ -157,14 +200,20 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     }
 
                     let formattedText = textSegments.join('').trim();
+
                     if (this.settings.addTrackingSignature) {
-                        formattedText = this.settings.trackingSignatureStart + '\n' + formattedText + '\n' + this.settings.trackingSignatureEnd;
+                        formattedText =
+                            this.settings.trackingSignatureStart + '\n' +
+                            formattedText + '\n' +
+                            this.settings.trackingSignatureEnd;
                     }
+
                     editor.replaceSelection(formattedText);
 
                     if (this.settings.enableNotifications) {
                         new Notice("Paste formatted by Clean AI Paste!");
                     }
+
                 } catch (error) {
                     new Notice("Clean AI Paste error: Could not format clipboard data.");
                     console.error("Clean AI Paste plugin error:", error);
@@ -182,6 +231,11 @@ module.exports = class CleanAIPastePlugin extends Plugin {
     }
 };
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings UI
+// ─────────────────────────────────────────────────────────────────────────────
+
 class CleanAIPasteSettingTab extends PluginSettingTab {
     constructor(app, plugin) {
         super(app, plugin);
@@ -190,7 +244,6 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
     display() {
         const { containerEl } = this;
-
         containerEl.empty();
 
         containerEl.createEl('h3', { text: 'Formatting & Cleanup' });
@@ -255,7 +308,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Convert math delimiters')
-            .setDesc('Automatically converts LaTeX math delimiters \\( \\) and \\[ \\] typically used by AI models into Obsidian\'s native $ and $$ formats.')
+            .setDesc('Converts AI-style LaTeX delimiters \\( \\) and \\[ \\] into Obsidian\'s native $ and $$ formats. Works correctly inside table cells.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.convertMathDelimiters)
                 .onChange(async (value) => {
@@ -265,7 +318,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Format horizontal rules')
-            .setDesc('Ensures proper formatting and padding around horizontal separators (---).')
+            .setDesc('Ensures a blank line both before and after horizontal separators (---) so they render correctly.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.formatHorizontalRules)
                 .onChange(async (value) => {
@@ -297,7 +350,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Add tracking signature')
-            .setDesc('Wraps the pasted text with a hidden start and end tracking comment so you can easily identify AI-generated blocks in Source Mode. These comments are hidden in read mode.')
+            .setDesc('Wraps the pasted text with a hidden start and end tracking comment so you can easily identify AI-generated blocks in Source Mode. These comments are hidden in Read Mode.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.addTrackingSignature)
                 .onChange(async (value) => {
