@@ -3,7 +3,7 @@
 	"name": "Clean AI Paste",
 	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
-	"description": "Instantly turns messy text pasted from AI chatbots like ChatGPT, Claude, and Gemini into clean Obsidian Markdown notes. Removes excessive blank lines and emojis, fixes code blocks, headers, and more.",
+	"description": "Instantly turns messy text pasted from AI chatbots like ChatGPT, Claude, and Gemini into clean Markdown notes. Removes excessive blank lines and emojis, fixes code blocks, headers, and more.",
 	"author": "Jeremy Hou",
 	"authorUrl": "https://github.com/GoSlowPoke168",
 	"isDesktopOnly": false
