@@ -7,8 +7,10 @@ const DEFAULT_SETTINGS = {
     condenseBlankLines: true,
     stripTrailingWhitespaces: true,
     stripEmojis: true,
+    cleanLinkTracking: true,
     // Markdown Elements
     unboldHeaders: true,
+    unboldLinks: true,
     headerDowngradeLevel: 0,
     convertMathDelimiters: true,
     formatHorizontalRules: true,
@@ -19,6 +21,134 @@ const DEFAULT_SETTINGS = {
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
     trackingSignatureEnd: "<!-- [AI Generated End] -->",
     enableNotifications: false
+}
+
+function stripTrackingParams(text) {
+    const trackingParams = [
+        'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
+        'fbclid', 'gclid', 'msclkid', 'yclid', 'mc_cid', 'mc_eid', 'igshid'
+    ];
+
+    const urlRegex = /\bhttps?:\/\/[^\s()<>`"\[\]]+/g;
+
+    return text.replace(urlRegex, (match) => {
+        try {
+            const hashParts = match.split('#');
+            const urlWithoutHash = hashParts[0];
+            const hash = hashParts.length > 1 ? '#' + hashParts.slice(1).join('#') : '';
+
+            const queryParts = urlWithoutHash.split('?');
+            if (queryParts.length < 2) return match;
+
+            const baseUrl = queryParts[0];
+            const queryString = queryParts.slice(1).join('?');
+
+            const params = queryString.split('&');
+            const cleanParams = [];
+            for (const param of params) {
+                if (!param) continue;
+                const [key] = param.split('=');
+                const decodedKey = decodeURIComponent(key);
+                if (trackingParams.includes(decodedKey) || decodedKey.startsWith('utm_')) {
+                    continue;
+                }
+                cleanParams.push(param);
+            }
+
+            const newQueryString = cleanParams.length > 0 ? '?' + cleanParams.join('&') : '';
+            return baseUrl + newQueryString + hash;
+        } catch (e) {
+            return match;
+        }
+    });
+}
+
+function normalizeLanguageLabel(text, codeBlock) {
+    const textTrimmed = text.trimEnd();
+    const trailing = text.slice(textTrimmed.length);
+
+    const match = textTrimmed.match(/(?:^|\n)([ \t]*)([A-Za-z0-9+#\-_]+)[ \t]*$/);
+    if (match) {
+        const lang = match[2];
+        const prevNl = textTrimmed.lastIndexOf('\n');
+        const lastLine = prevNl === -1 ? textTrimmed : textTrimmed.slice(prevNl + 1);
+
+        if (lastLine.trim() === lang) {
+            let prefixToKeep = match[0].startsWith('\n') ? '\n' : '';
+
+            if (/^[ \t]*```\s*\n/.test(codeBlock)) {
+                text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
+                codeBlock = codeBlock.replace(/^([ \t]*)```\s*\n/, '$1```' + lang + '\n');
+            } else {
+                const cbMatch = codeBlock.match(/^[ \t]*```([a-zA-Z0-9+#\-_]+)\s*\n/);
+                if (cbMatch && cbMatch[1].toLowerCase() === lang.toLowerCase()) {
+                    text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
+                }
+            }
+        }
+    }
+    return { text, codeBlock };
+}
+
+function unboldHeaders(text) {
+    text = text.replace(/^\s*(?:\*\*|__)\s*(#+\s+.*?)\s*(?:\*\*|__)\s*$/gm, '$1');
+    return text.replace(/^\s*(#+\s+)(.*)$/gm, (m, hashes, content) =>
+        hashes + content.replace(/\*\*|__/g, '')
+    );
+}
+
+function unboldLinks(text) {
+    return text.replace(/(?:\*\*|__)\s*(\[[^\]]+\]\([^\s)]+\))\s*(?:\*\*|__)/g, '$1');
+}
+
+function downgradeHeaders(text, level) {
+    return text.replace(/^\s*(#+)(\s+.*)$/gm, (m, hashes, content) => {
+        const newHashes = '#'.repeat(Math.min(6, hashes.length + level));
+        return newHashes + content;
+    });
+}
+
+function condenseBlankLines(text) {
+    text = text.replace(/\r?\n(?:[ \t\xA0]*\r?\n)+/g, '\n');
+    return text.replace(/^>[ \t]*\r?\n/gm, '');
+}
+
+function convertMathDelimiters(text) {
+    text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
+    return text.replace(/\\\(([^\n]*?(?:\n[^\n]*?){0,4}?)\\\)/g, (_, inner) => '$' + inner + '$');
+}
+
+function formatHorizontalRules(text) {
+    text = text.replace(/([^\n])\n+(---)/g, '$1\n\n$2');
+    return text.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
+}
+
+function formatTablePadding(text) {
+    text = text.replace(/([^\n|])\n+(\|)/g, '$1\n\n$2');
+    return text.replace(/(\|[^\n]*\n)([^|\n])/g, '$1\n$2');
+}
+
+function formatBlockquotePadding(text) {
+    return text.replace(/(^>.*$)\r?\n([^>\n\r])/gm, '$1\n\n$2');
+}
+
+function stripTrailingWhitespaces(text) {
+    return text.replace(/[ \t]+$/gm, '');
+}
+
+function stripEmojis(text) {
+    return text.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu, '')
+        .replace(/(\S)[ \t]{2,}/g, '$1 ');
+}
+
+function stripCodeblockIndentation(codeBlock) {
+    const match = codeBlock.match(/^([ \t]*)```/);
+    if (match && match[1].length > 0) {
+        const indent = match[1];
+        const indentRegex = new RegExp('^' + indent, 'gm');
+        codeBlock = codeBlock.replace(indentRegex, '');
+    }
+    return codeBlock;
 }
 
 module.exports = class CleanAIPastePlugin extends Plugin {
@@ -88,84 +218,60 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                             // Language label normalization
                             if (i + 1 < textSegments.length) {
-                                let codeBlock = textSegments[i + 1];
-                                const textTrimmed = text.trimEnd();
-                                const trailing = text.slice(textTrimmed.length);
-
-                                const match = textTrimmed.match(/(?:^|\n)([ \t]*)([A-Za-z0-9+#\-_]+)[ \t]*$/);
-                                if (match) {
-                                    const lang = match[2];
-                                    const prevNl = textTrimmed.lastIndexOf('\n');
-                                    const lastLine = prevNl === -1 ? textTrimmed : textTrimmed.slice(prevNl + 1);
-
-                                    if (lastLine.trim() === lang) {
-                                        let prefixToKeep = match[0].startsWith('\n') ? '\n' : '';
-
-                                        if (/^[ \t]*```\s*\n/.test(codeBlock)) {
-                                            text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
-                                            textSegments[i + 1] = codeBlock.replace(/^([ \t]*)```\s*\n/, '$1```' + lang + '\n');
-                                        } else {
-                                            const cbMatch = codeBlock.match(/^[ \t]*```([a-zA-Z0-9+#\-_]+)\s*\n/);
-                                            if (cbMatch && cbMatch[1].toLowerCase() === lang.toLowerCase()) {
-                                                text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
-                                            }
-                                        }
-                                    }
-                                }
+                                const normalized = normalizeLanguageLabel(text, textSegments[i + 1]);
+                                text = normalized.text;
+                                textSegments[i + 1] = normalized.codeBlock;
                             }
 
                             // Unbold Headers
                             if (this.settings.unboldHeaders) {
-                                text = text.replace(/^\s*(?:\*\*|__)\s*(#+\s+.*?)\s*(?:\*\*|__)\s*$/gm, '$1');
-                                text = text.replace(/^\s*(#+\s+)(.*)$/gm, (m, hashes, content) =>
-                                    hashes + content.replace(/\*\*|__/g, '')
-                                );
+                                text = unboldHeaders(text);
+                            }
+
+                            // Unbold Links
+                            if (this.settings.unboldLinks) {
+                                text = unboldLinks(text);
                             }
 
                             // Header downgrade
                             if (this.settings.headerDowngradeLevel > 0) {
-                                text = text.replace(/^\s*(#+)(\s+.*)$/gm, (m, hashes, content) => {
-                                    const newHashes = '#'.repeat(Math.min(6, hashes.length + this.settings.headerDowngradeLevel));
-                                    return newHashes + content;
-                                });
+                                text = downgradeHeaders(text, this.settings.headerDowngradeLevel);
                             }
 
                             // Condense blank lines
                             if (this.settings.condenseBlankLines) {
-                                text = text.replace(/\r?\n(?:[ \t\xA0]*\r?\n)+/g, '\n');
-                                text = text.replace(/^>[ \t]*\r?\n/gm, '');
+                                text = condenseBlankLines(text);
                             }
 
                             // Convert math delimiters
                             if (this.settings.convertMathDelimiters) {
-                                // Display math: \[...\] → $$...$$
-                                text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
-                                // Inline math: \(...\) → $...$
-                                text = text.replace(/\\\(([^\n]*?(?:\n[^\n]*?){0,4}?)\\\)/g, (_, inner) => '$' + inner + '$');
+                                text = convertMathDelimiters(text);
                             }
 
                             // Format horizontal rules
                             if (this.settings.formatHorizontalRules) {
-                                text = text.replace(/([^\n])\n+(---)/g, '$1\n\n$2');
-                                text = text.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
+                                text = formatHorizontalRules(text);
                             }
 
                             // Table padding
-                            text = text.replace(/([^\n|])\n+(\|)/g, '$1\n\n$2');
-                            text = text.replace(/(\|[^\n]*\n)([^|\n])/g, '$1\n$2');
+                            text = formatTablePadding(text);
 
                             // Blockquote padding
-                            text = text.replace(/(^>.*$)\r?\n([^>\n\r])/gm, '$1\n\n$2');
+                            text = formatBlockquotePadding(text);
 
                             // Strip trailing whitespaces
                             if (this.settings.stripTrailingWhitespaces) {
-                                text = text.replace(/[ \t]+$/gm, '');
+                                text = stripTrailingWhitespaces(text);
                             }
 
                             // Strip emojis
                             if (this.settings.stripEmojis) {
-                                text = text.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu, '')
-                                    .replace(/(\S)[ \t]{2,}/g, '$1 ');
+                                text = stripEmojis(text);
+                            }
+
+                            // Clean link tracking parameters
+                            if (this.settings.cleanLinkTracking) {
+                                text = stripTrackingParams(text);
                             }
 
                             // Code block padding
@@ -188,14 +294,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                         } else {
                             // Odd segment = fenced code block. Strip over-indentation only.
-                            let codeBlock = textSegments[i];
-                            const match = codeBlock.match(/^([ \t]*)```/);
-                            if (match && match[1].length > 0) {
-                                const indent = match[1];
-                                const indentRegex = new RegExp('^' + indent, 'gm');
-                                codeBlock = codeBlock.replace(indentRegex, '');
-                            }
-                            textSegments[i] = codeBlock;
+                            textSegments[i] = stripCodeblockIndentation(textSegments[i]);
                         }
                     }
 
@@ -278,6 +377,16 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName('Clean link tracking parameters')
+            .setDesc('Removes marketing tracking parameters (e.g., ?utm_source=chatgpt.com) from URLs in the pasted text while preserving important query parameters.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.cleanLinkTracking)
+                .onChange(async (value) => {
+                    this.plugin.settings.cleanLinkTracking = value;
+                    await this.plugin.saveSettings();
+                }));
+
         containerEl.createEl('h3', { text: 'Markdown Elements' });
 
         new Setting(containerEl)
@@ -287,6 +396,16 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.unboldHeaders)
                 .onChange(async (value) => {
                     this.plugin.settings.unboldHeaders = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Unbold links')
+            .setDesc('Removes bold formatting wrapper from pasted links (e.g. changes **[Link Text](url)** to [Link Text](url)).')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.unboldLinks)
+                .onChange(async (value) => {
+                    this.plugin.settings.unboldLinks = value;
                     await this.plugin.saveSettings();
                 }));
 
