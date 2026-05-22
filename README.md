@@ -14,7 +14,7 @@ When you copy text from an AI web interface, the result in Obsidian is often clu
 | **Blank Lines**  | `Paragraph.`<br><br>`Next paragraph.`           | `Paragraph.`<br>`Next paragraph.`         |
 | **Code Blocks**  | `python`<br>` ``` `<br>`print("hi")`<br>` ``` ` | ` ```python `<br>`print("hi")`<br>` ``` ` |
 | **Math (LaTeX)** | `\( x = y \)`                                   | `$ x = y $`                               |
-| **Tracking URLs**| `https://openai.com/?utm_source=chatgpt.com`    | `https://openai.com/`                     |
+| **Tracking URLs**| `https://example.com/?utm_source=chatgpt.com`    | `https://example.com/`                     |
 ---
 
 ## Features
