@@ -171,17 +171,17 @@ module.exports = class CleanAIPastePlugin extends Plugin {
             try {
                 const items = await navigator.clipboard.read();
                 for (const item of items) {
+                    if (item.types.includes('text/plain')) {
+                        const blob = await item.getType('text/plain');
+                        const text = await blob.text();
+                        activeEditor.editor.replaceSelection(text.trim());
+                        return;
+                    }
                     if (item.types.includes('text/html')) {
                         const blob = await item.getType('text/html');
                         const html = await blob.text();
                         const markdown = htmlToMarkdown(html);
                         activeEditor.editor.replaceSelection(markdown.trim());
-                        return;
-                    }
-                    if (item.types.includes('text/plain')) {
-                        const blob = await item.getType('text/plain');
-                        const text = await blob.text();
-                        activeEditor.editor.replaceSelection(text.trim());
                         return;
                     }
                 }
@@ -205,9 +205,13 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 try {
                     evt.preventDefault();
 
-                    let rawText = hasHtml
+                    // If the plain text contains ([[...]] or ![[...]])
+                    // use plain text directly to avoid htmlToMarkdown destroying those links.
+                    const plainText = hasText ? clipboardData.getData('text/plain') : '';
+                    const hasWikiLinks = /!?\[\[[\/\s\S]*?\]\]/.test(plainText);
+                    let rawText = (hasHtml && !hasWikiLinks)
                         ? htmlToMarkdown(clipboardData.getData('text/html'))
-                        : clipboardData.getData('text/plain');
+                        : plainText;
 
                     // Split on fenced code blocks.
                     const textSegments = rawText.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$))/m);
