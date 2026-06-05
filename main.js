@@ -16,6 +16,8 @@ const DEFAULT_SETTINGS = {
     formatHorizontalRules: true,
     paddingBeforeCodeblock: true,
     paddingAfterCodeblock: true,
+    // Bypass Paste (Ctrl+Shift+V)
+    cleanupOnBypass: true,
     // AI Tracking & Notifications
     addTrackingSignature: false,
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
@@ -92,13 +94,19 @@ function normalizeLanguageLabel(text, codeBlock) {
 
 function unboldHeaders(text) {
     text = text.replace(/^\s*(?:\*\*|__)\s*(#+\s+.*?)\s*(?:\*\*|__)\s*$/gm, '$1');
-    return text.replace(/^\s*(#+\s+)(.*)$/gm, (m, hashes, content) =>
-        hashes + content.replace(/\*\*|__/g, '')
-    );
+    return text.replace(/^\s*(#+\s+)(.*)$/gm, (m, hashes, content) => {
+        // Split on inline code spans to avoid stripping ** inside backticks.
+        const parts = content.split(/(`.+?`)/);
+        for (let i = 0; i < parts.length; i++) {
+            if (i % 2 === 0) parts[i] = parts[i].replace(/\*\*|__/g, '');
+        }
+        return hashes + parts.join('');
+    });
 }
 
 function unboldLinks(text) {
-    return text.replace(/(?:\*\*|__)\s*(\[[^\]]+\]\([^\s)]+\))\s*(?:\*\*|__)/g, '$1');
+    // Supports URLs with arbitrary nested parentheses as long as they contain no spaces.
+    return text.replace(/(?:\*\*|__)\s*(\[[^\]]+\]\([^ \t\n]+?\))\s*(?:\*\*|__)/g, '$1');
 }
 
 function downgradeHeaders(text, level) {
@@ -109,16 +117,32 @@ function downgradeHeaders(text, level) {
 }
 
 function condenseBlankLines(text) {
+    // Do not change the replacements below to \n\n. 
     text = text.replace(/\r?\n(?:[ \t\xA0]*\r?\n)+/g, '\n');
     return text.replace(/^>[ \t]*\r?\n/gm, '');
 }
 
 function convertMathDelimiters(text) {
     text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
-    return text.replace(/\\\(([^\n]*?(?:\n[^\n]*?){0,4}?)\\\)/g, (_, inner) => '$' + inner + '$');
+    return text.replace(/\\\(([\s\S]*?)\\\)/g, (_, inner) => '$' + inner + '$');
 }
 
 function formatHorizontalRules(text) {
+    // Skip YAML frontmatter: if text starts with --- it's likely frontmatter, not a rule.
+    const hasFrontmatter = /^---[ \t]*\r?\n/.test(text);
+    let startIdx = 0;
+    if (hasFrontmatter) {
+        // Find the closing --- of frontmatter and start processing after it.
+        const closingMatch = text.match(/\n---[ \t]*(?:\r?\n|$)/);
+        if (closingMatch) startIdx = closingMatch.index + closingMatch[0].length;
+    }
+    if (startIdx > 0) {
+        const before = text.slice(0, startIdx);
+        let after = text.slice(startIdx);
+        after = after.replace(/([^\n])\n+(---)/g, '$1\n\n$2');
+        after = after.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
+        return before + after;
+    }
     text = text.replace(/([^\n])\n+(---)/g, '$1\n\n$2');
     return text.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
 }
@@ -171,19 +195,38 @@ module.exports = class CleanAIPastePlugin extends Plugin {
             try {
                 const items = await navigator.clipboard.read();
                 for (const item of items) {
-                    if (item.types.includes('text/plain')) {
-                        const blob = await item.getType('text/plain');
-                        const text = await blob.text();
-                        activeEditor.editor.replaceSelection(text.trim());
-                        return;
+                    const hasHtmlType = item.types.includes('text/html');
+                    const hasPlainType = item.types.includes('text/plain');
+
+                    const plainText = hasPlainType
+                        ? await (await item.getType('text/plain')).text()
+                        : '';
+
+                    let html = '';
+                    if (hasHtmlType) {
+                        html = await (await item.getType('text/html')).text();
                     }
-                    if (item.types.includes('text/html')) {
-                        const blob = await item.getType('text/html');
-                        const html = await blob.text();
-                        const markdown = htmlToMarkdown(html);
-                        activeEditor.editor.replaceSelection(markdown.trim());
-                        return;
+
+                    const isObsidianInternal = html.includes('<!-- obsidian -->');
+
+                    let result;
+                    if (isObsidianInternal || !hasHtmlType) {
+                        // Obsidian-internal content or no HTML available: use plain text as-is.
+                        result = plainText;
+                    } else {
+                        // External content (AI chatbots etc.): convert HTML to preserve
+                        // markdown structure (headings, bold, etc.) without plugin transforms.
+                        result = htmlToMarkdown(html);
                     }
+
+                    // Optionally apply lightweight cleanup (condense blank lines + strip trailing whitespace).
+                    if (this.settings.cleanupOnBypass) {
+                        result = condenseBlankLines(result);
+                        result = stripTrailingWhitespaces(result);
+                    }
+
+                    activeEditor.editor.replaceSelection(result.trim());
+                    return;
                 }
             } catch (e) {
                 console.error("Clean AI Paste: Shift+V clipboard read failed", e);
@@ -202,21 +245,32 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                 if (evt.shiftKey) return;
 
+                const html = hasHtml ? clipboardData.getData('text/html') : '';
+
+                // If the content is copied from within Obsidian, completely bypass the plugin
+                if (html.includes('<!-- obsidian -->')) return;
+
                 try {
                     evt.preventDefault();
 
-                    // If the plain text contains ([[...]] or ![[...]])
-                    // use plain text directly to avoid htmlToMarkdown destroying those links.
                     const plainText = hasText ? clipboardData.getData('text/plain') : '';
-                    const hasWikiLinks = /!?\[\[[\/\s\S]*?\]\]/.test(plainText);
-                    let rawText = (hasHtml && !hasWikiLinks)
-                        ? htmlToMarkdown(clipboardData.getData('text/html'))
+
+                    let rawText = hasHtml
+                        ? htmlToMarkdown(html)
                         : plainText;
 
                     // Split on fenced code blocks.
                     const textSegments = rawText.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$))/m);
 
+                    // If the last text segment contains an unclosed code fence,
+                    // skip all transforms on it to avoid corrupting code content.
+                    const lastIdx = textSegments.length - 1;
+                    const hasUnclosedFence = lastIdx % 2 === 0 && /^[ \t]*```/m.test(textSegments[lastIdx]);
+
                     for (let i = 0; i < textSegments.length; i++) {
+                        // Skip the last segment if it has an unclosed code fence.
+                        if (hasUnclosedFence && i === lastIdx) break;
+
                         if (i % 2 === 0) {
                             let text = textSegments[i];
 
@@ -302,7 +356,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                         }
                     }
 
-                    let formattedText = textSegments.join('').trim();
+                    let formattedText = textSegments.join('').replace(/^\n+|\n+$/g, '');
 
                     if (this.settings.addTrackingSignature) {
                         formattedText =
@@ -466,6 +520,18 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.paddingAfterCodeblock)
                 .onChange(async (value) => {
                     this.plugin.settings.paddingAfterCodeblock = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        containerEl.createEl('h3', { text: 'Bypass Paste (Ctrl+Shift+V)' });
+
+        new Setting(containerEl)
+            .setName('Apply cleanup on bypass paste')
+            .setDesc('When enabled, Ctrl/Cmd+Shift+V will still condense blank lines and strip trailing whitespace, while skipping all other plugin transforms. When disabled, content is pasted with markdown structure intact but completely unmodified.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.cleanupOnBypass)
+                .onChange(async (value) => {
+                    this.plugin.settings.cleanupOnBypass = value;
                     await this.plugin.saveSettings();
                 }));
 
