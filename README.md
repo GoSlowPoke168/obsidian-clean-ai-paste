@@ -95,7 +95,7 @@ Everything in the [Features](#features) section is applied on top of this baseli
 
 Simply copy and paste whatever text using the standard shortcut: `Ctrl+V` (Windows/Linux) or `Cmd+V` (macOS). All formatting rules fire instantly and automatically.
 
-### Bypass Paste (`Ctrl+Shift+V` / `Cmd+Shift+V`)
+### Bypass Paste
 
 To bypass the plugin and paste the raw Markdown structure with no heavy transforms applied, use: `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (macOS).
 
