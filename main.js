@@ -240,9 +240,39 @@ const KNOWN_CODE_LANGUAGES = new Set([
     'plaintext', 'text', 'txt', 'output', 'log'
 ]);
 
-// Replace <br> tags with newlines before passing to htmlToMarkdown.
-function preprocessHtml(html) {
-    return html.replace(/<br\s*\/?>/gi, '\n');
+// Pre-process clipboard HTML to fix code blocks and line breaks before htmlToMarkdown
+function preprocessHtml(html, plainText = '') {
+    // 1. Replace <br> with \n INSIDE <pre> or <code> blocks.
+    html = html.replace(/<(pre|code)\b[^>]*>(.*?)<\/\1>/gis, (match, tag, content) => {
+        return `<${tag}>` + content.replace(/<br\s*\/?>/gi, '\n') + `</${tag}>`;
+    });
+
+    // 2. Fix for partial code block copies (where the HTML contains no structural elements)
+    // If the copied fragment has no block elements, but the plain text has newlines,
+    // the text was copied from a pre-formatted container so we need to convert \n to <br>.
+    if (plainText.includes('\n')) {
+        let prefix = '', content = html, suffix = '';
+        const startFrag = html.match(/<!--StartFragment-->/);
+        const endFrag = html.match(/<!--EndFragment-->/);
+
+        if (startFrag && endFrag) {
+            const startIdx = startFrag.index + startFrag[0].length;
+            const endIdx = endFrag.index;
+            if (startIdx < endIdx) {
+                prefix = html.substring(0, startIdx);
+                content = html.substring(startIdx, endIdx);
+                suffix = html.substring(endIdx);
+            }
+        }
+
+        const blockElementRegex = /<(p|div|pre|table|ul|ol|li|h[1-6]|blockquote|article|section|nav|header|footer|figure|figcaption|br)\b[^>]*>/i;
+        if (!blockElementRegex.test(content)) {
+            const fixedContent = content.replace(/\r?\n/g, '<br>');
+            html = prefix + fixedContent + suffix;
+        }
+    }
+
+    return html;
 }
 
 // After htmlToMarkdown runs, some AI interfaces leave a floating language label
@@ -342,7 +372,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     } else {
                         // External content (AI chatbots etc.): convert HTML to preserve
                         // markdown structure (headings, bold, etc.) without plugin transforms.
-                        result = htmlToMarkdown(preprocessHtml(html));
+                        result = htmlToMarkdown(preprocessHtml(html, plainText));
                     }
 
                     // Optionally apply lightweight cleanup (condense blank lines + strip trailing whitespace).
@@ -387,7 +417,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     const plainText = hasText ? clipboardData.getData('text/plain') : '';
 
                     let rawText = hasHtml
-                        ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html)))
+                        ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText)))
                         : plainText;
 
                     // Split on fenced code blocks.
