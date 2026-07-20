@@ -4,7 +4,6 @@
 [![Release](https://img.shields.io/github/v/release/GoSlowPoke168/obsidian-clean-ai-paste?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1naXQtbWVyZ2UiPjxjaXJjbGUgY3g9IjE4IiBjeT0iMTgiIHI9IjMiLz48Y2lyY2xlIGN4PSI2IiBjeT0iNiIgcj0iMyIvPjxwYXRoIGQ9Ik02IDIxVjlhOSA5IDAgMCAwIDkgOSIvPjwvc3ZnPg==)](https://github.com/GoSlowPoke168/obsidian-clean-ai-paste/releases/latest)
 [![Latest Release](https://img.shields.io/github/release-date/GoSlowPoke168/obsidian-clean-ai-paste?style=for-the-badge&label=Latest%20Release&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBjbGFzcz0ibHVjaWRlIGx1Y2lkZS1jYWxlbmRhci1jaGVjay0yIj48cGF0aCBkPSJNMjEgMTRWNmEyIDIgMCAwIDAtMi0ySDVhMiAyIDAgMCAwLTIgMnYxNGEyIDIgMCAwIDAgMiAyaDgiLz48bGluZSB4MT0iMTYiIHgyPSIxNiIgeTE9IjIiIHkyPSI2Ii8+PGxpbmUgeDE9IjgiIHgyPSI4IiB5MT0iMiIgeTI9IjYiLz48bGluZSB4MT0iMyIgeDI9IjIxIiB5MT0iMTAiIHkyPSIxMCIvPjxwYXRoIGQ9Im0xNiAyMCAyIDIgNC00Ii8+PC9zdmc+)](https://github.com/GoSlowPoke168/obsidian-clean-ai-paste/releases/latest)
 
-
 **Clean AI Paste** is an Obsidian plugin designed to automatically clean up and format text pasted from AI chatbots (ChatGPT, Claude, Gemini, etc.) instantly and silently, every time you paste.
 
 When you copy text from an AI web interface, the result in Obsidian is often cluttered with excessive blank lines, malformed code blocks, over-bolded headers, broken LaTeX math, emojis, and more. This plugin intercepts the paste event, converts the clipboard HTML to native Markdown, and applies a fully customizable set of formatting rules before inserting it into your note.
@@ -44,9 +43,10 @@ Clean AI Paste runs automatically. Just press `Ctrl+V` or `Cmd+V` to paste from 
 - **Unbold Headers** — Strips bold markers from Markdown headers (`**## Header**` → `## Header`).
 - **Unbold Links** — Removes bold formatting wrapped around Markdown links (`**[Link](url)**` → `[Link](url)`).
 - **Header Downgrade Level** — Shifts pasted headers down by 1–3 levels (e.g. `#` → `##`). Capped at `######`.
-- **Convert Math Delimiters** — Converts AI-style LaTeX (`\(`, `\)`, `\[`, `\]`) to Obsidian's native `$` and `$$`.
-- **Format Horizontal Lines** — Ensures a blank line both before and after `---` separators so they render correctly.
+- **Convert Math Delimiters** — Converts AI-style LaTeX (`\(`, `\)`, `\[`, `\]`) to Obsidian's native `$` and `$$`. Leaves content inside inline code untouched.
+- **Format Horizontal Lines** — Ensures a blank line both before and after `---` separators so they render correctly. (A heading placed directly after a rule is always kept tight against it — see below.)
 - **Padding Before/After Code Blocks** — Independently control whether a blank line is inserted before and after every fenced code block.
+- **Inline Single-Line Code Blocks** — Converts a fenced code block containing only one line (e.g. a copied one-line command) into inline `` `code` ``. Blocks with a language label (like ` ```python `) and multi-line blocks are always kept as full blocks. *(Off by default.)*
 
 ### Code Block Intelligence (Always Active)
 
@@ -60,16 +60,17 @@ Clean AI Paste runs automatically. Just press `Ctrl+V` or `Cmd+V` to paste from 
 
 ### Troubleshooting
 
-- **Debug/Preview Mode** — When enabled, pasting opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. You can inspect all three and choose which to insert — useful for understanding exactly why a paste looks the way it does.
+- **Debug/Preview Mode** — When enabled, pasting (either `Ctrl+V` or `Ctrl+Shift+V`) opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. You can inspect all three and choose which to insert — useful for understanding exactly why a paste looks the way it does.
 - **Reset settings to default** — A button at the bottom of the settings tab to instantly restore all toggles to their original state.
 
 ### Baseline Behavior (Always Active)
 
 These actions happen on every external paste, regardless of your settings:
 
-1. **External paste interception** — Content copied from inside Obsidian passes through completely untouched. The plugin only activates for content from outside (browsers, AI chat interfaces, etc.).
+1. **External paste interception** — On a normal `Ctrl+V`, content copied from inside Obsidian passes through completely untouched; the plugin's formatting only activates for content from outside (browsers, AI chat interfaces, etc.). (A bypass `Ctrl+Shift+V` with *Keep Markdown structure on bypass* enabled may still apply its light cleanup to internal content — use a normal `Ctrl+V` for a truly untouched internal paste.)
 2. **HTML → Markdown conversion** — Reads `text/html` from the clipboard and converts it to native Markdown using Obsidian's built-in engine, preserving headings, bold, lists, links, and code blocks.
 3. **Table & blockquote padding** — Always adds a blank line before/after tables and after blockquotes so they render correctly in all Markdown contexts. This cannot be toggled off, but it only adds lines where they are structurally required.
+4. **Heading tight against a horizontal rule** — When a heading comes directly after a horizontal rule (`---`), any blank line between them is removed so the two stay tight. This is always applied — it deterministically settles the otherwise-conflicting *Format Horizontal Lines* and *Add blank line before headings* options at that specific junction. Rules followed by ordinary text keep their blank line as usual.
 
 Everything in the [Features](#features) section is applied on top of this baseline and can be individually toggled and customized.
 
@@ -97,14 +98,12 @@ Simply copy and paste whatever text using the standard shortcut: `Ctrl+V` (Windo
 
 ### Bypass Paste
 
-To bypass the plugin and paste the raw Markdown structure with no heavy transforms applied, use: `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (macOS).
+To bypass the plugin's formatting pipeline, use: `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (macOS). Bypass paste never wraps content in a code fence, and it skips every formatting rule from the [Features](#features) section.
 
-This is useful when you want the exact AI output without any cleanup. While `Ctrl+Shift+V` still runs the basic HTML-to-Markdown conversion, it explicitly **bypasses and skips** the rest of the baseline format actions:
-- Code Block Cleanup and Formatting
-- Code Indentation Stripping
-- Table & Blockquote Padding
+What it inserts depends on the **Keep Markdown structure on bypass** toggle in the settings (on by default):
 
-You can also optionally keep lightweight cleanup (on by default) active if you turn on the **Cleanup on Bypass** toggle in the settings. This will make the bypass less strict where it still preserves some formatting like code block formatting, some spacing, etc.
+- **Toggle on** — Keeps the Markdown structure of the copied content (headings, lists, tables, bold, links), since the plain-text version from many sites has no list numbers, heading marks, or table pipes at all. Then applies only minimal cleanup: condensing blank lines (following the **Spacing normalization** setting — e.g. set it to "Off" and bypass will leave blank lines untouched too), padding tables so they render, and stripping trailing whitespace. Code is still never wrapped in a fence.
+- **Toggle off** — Inserts the clipboard's raw plain text exactly as copied, completely untouched.
 
 ---
 
