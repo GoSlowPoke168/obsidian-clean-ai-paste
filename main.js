@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
     formatHorizontalRules: true,
     paddingBeforeCodeblock: true,
     paddingAfterCodeblock: true,
+    inlineSingleLineCodeblocks: false,
     // Bypass Paste (Ctrl+Shift+V)
     cleanupOnBypass: true,
     // AI Tracking & Notifications
@@ -37,7 +38,7 @@ function stripTrackingParams(text) {
 
     const urlRegex = /\bhttps?:\/\/[^\s()<>`"\[\]]+/g;
 
-    return text.replace(urlRegex, (match) => {
+    const cleanUrl = (match) => {
         try {
             const hashParts = match.split('#');
             const urlWithoutHash = hashParts[0];
@@ -66,7 +67,14 @@ function stripTrackingParams(text) {
         } catch (e) {
             return match;
         }
-    });
+    };
+
+    // Split on inline code spans (`...`) so URLs quoted inside them are left untouched --
+    // code/inline-code content should never be modified.
+    return text.split(/(`.+?`)/).map((part, i) => {
+        if (i % 2 === 1) return part;
+        return part.replace(urlRegex, cleanUrl);
+    }).join('');
 }
 
 function normalizeLanguageLabel(text, codeBlock) {
@@ -102,8 +110,10 @@ function normalizeLanguageLabel(text, codeBlock) {
 }
 
 function unboldHeaders(text) {
-    text = text.replace(/^\s*(?:\*\*|__)\s*(#+\s+.*?)\s*(?:\*\*|__)\s*$/gm, '$1');
-    return text.replace(/^\s*(#+\s+)(.*)$/gm, (m, hashes, content) => {
+    // Note: leading anchors use [ \t]* (not \s*) so the blank line ABOVE a heading is
+    // never consumed and deleted — \s would match the preceding newline.
+    text = text.replace(/^[ \t]*(?:\*\*|__)\s*(#+\s+.*?)\s*(?:\*\*|__)[ \t]*$/gm, '$1');
+    return text.replace(/^[ \t]*(#+\s+)(.*)$/gm, (m, hashes, content) => {
         // Split on inline code spans to avoid stripping ** inside backticks.
         const parts = content.split(/(`.+?`)/);
         for (let i = 0; i < parts.length; i++) {
@@ -119,7 +129,8 @@ function unboldLinks(text) {
 }
 
 function downgradeHeaders(text, level) {
-    return text.replace(/^\s*(#+)(\s+.*)$/gm, (m, hashes, content) => {
+    // Leading anchor uses [ \t]* (not \s*) so the blank line above a heading isn't eaten.
+    return text.replace(/^[ \t]*(#+)(\s+.*)$/gm, (m, hashes, content) => {
         const newHashes = '#'.repeat(Math.min(6, hashes.length + level));
         return newHashes + content;
     });
@@ -165,8 +176,14 @@ function applyHeadingSpacing(text, blankBefore, removeBlankAfter) {
 }
 
 function convertMathDelimiters(text) {
-    text = text.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
-    return text.replace(/\\\(([\s\S]*?)\\\)/g, (_, inner) => '$' + inner + '$');
+    // Split on inline code spans (`...`) so LaTeX-looking delimiters quoted inside them
+    // (e.g. `arr\[0\]`) are left untouched -- code/inline-code content should never be
+    // modified.
+    return text.split(/(`.+?`)/).map((part, i) => {
+        if (i % 2 === 1) return part;
+        part = part.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
+        return part.replace(/\\\(([\s\S]*?)\\\)/g, (_, inner) => '$' + inner + '$');
+    }).join('');
 }
 
 function formatHorizontalRules(text) {
@@ -189,9 +206,23 @@ function formatHorizontalRules(text) {
     return text.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
 }
 
+function tightenRuleHeadingGap(text) {
+    // A heading placed directly after a horizontal rule reads better with no blank line
+    // between them — the rule + heading already form a strong visual break, so a gap there
+    // is redundant. This deterministically resolves the otherwise-conflicting "Format
+    // horizontal rules" (adds a blank after ---) and "Add blank line before headings"
+    // (adds a blank before headings) settings at this one junction: the rule/heading pair
+    // is always kept tight. Runs regardless of those two toggles. Only fires when a gap
+    // actually exists; rule-then-paragraph and standalone headings are left untouched.
+    return text.replace(/(^[ \t]*-{3,}[ \t]*\r?\n)(?:[ \t\xA0]*\r?\n)+([ \t]*#{1,6}[ \t])/gm, '$1$2');
+}
+
 function formatTablePadding(text) {
-    text = text.replace(/(^(?![ \t]*\|)[^\n]+)\n+([ \t]*\|)/gm, '$1\n\n$2');
-    return text.replace(/(\|[^\n]*\n)(?!\|[^\n]|\n|$)/g, '$1\n');
+    // Table row = leading pipe + at least one more pipe (htmlToMarkdown emits bordered
+    // rows like `| a | b |`). Excludes single-leading-pipe line art such as nmap's
+    // `| ssh-hostkey:` / `|_...` output, which would otherwise be mistaken for a table.
+    text = text.replace(/(^(?![ \t]*\|[^\n]*\|)[^\n]+)\n+([ \t]*\|[^\n]*\|)/gm, '$1\n\n$2');
+    return text.replace(/(^[ \t]*\|[^\n]*\|[^\n]*\n)(?![ \t]*\|[^\n]*\||\n|$)/gm, '$1\n');
 }
 
 function formatBlockquotePadding(text) {
@@ -203,6 +234,30 @@ function stripTrailingWhitespaces(text) {
 }
 
 function stripEmojis(text, allowlist) {
+    // Matches a run of emoji chars together with any spaces/tabs on either side, so we
+    // can collapse to a single space only when the emoji sat between two words -- and
+    // leave everything else (e.g. aligned columns in pasted terminal output) untouched.
+    const emojiRun = /([ \t]*)[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]+([ \t]*)/gu;
+    // When only ONE side had whitespace (e.g. "Press \u2318C" \u2014 a space before the emoji but
+    // none after, since it's glued to "C"), collapsing to '' would delete the emoji AND
+    // its space, gluing "Press" to "C" into "PressC". Instead, keep a single space when
+    // the whitespace-less side is a word/symbol character (so removal doesn't fuse two
+    // adjacent tokens like "Press"+"C" or "and"+"\u21e5") but NOT when it's punctuation
+    // (so "Hello \ud83d\ude00." still becomes "Hello." rather than "Hello .").
+    const isBoundary = (ch) => !ch || ch === '\n' || ch === '\r' || /\p{P}/u.test(ch);
+    const collapse = (m, before, after, offset, string) => {
+        if (before && after) return ' ';
+        if (before && !after) {
+            const next = string[offset + m.length];
+            return isBoundary(next) ? '' : ' ';
+        }
+        if (!before && after) {
+            const prev = string[offset - 1];
+            return isBoundary(prev) ? '' : ' ';
+        }
+        return '';
+    };
+
     if (allowlist) {
         const allowed = [...new Set(allowlist.split(/[\s,]+/).filter(Boolean))];
         if (allowed.length > 0) {
@@ -210,15 +265,14 @@ function stripEmojis(text, allowlist) {
             for (const { token, emoji } of placeholders) {
                 text = text.split(emoji).join(token);
             }
-            text = text.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu, '');
+            text = text.replace(emojiRun, collapse);
             for (const { token, emoji } of placeholders) {
                 text = text.split(token).join(emoji);
             }
-            return text.replace(/(\S)[ \t]{2,}/g, '$1 ');
+            return text;
         }
     }
-    return text.replace(/[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu, '')
-        .replace(/(\S)[ \t]{2,}/g, '$1 ');
+    return text.replace(emojiRun, collapse);
 }
 
 // Languages recognised as code block labels when found floating above plain-text code.
@@ -242,12 +296,33 @@ const KNOWN_CODE_LANGUAGES = new Set([
 
 // Pre-process clipboard HTML to fix code blocks and line breaks before htmlToMarkdown
 function preprocessHtml(html, plainText = '') {
-    // 1. Replace <br> with \n INSIDE <pre> or <code> blocks.
+    // 1. Normalize Gemini code blocks. Gemini wraps each code block in a <code-block>
+    // custom element containing a header label span ("Bash"), download/copy buttons, and
+    // the actual <pre><code> buried several inline custom elements deep. Obsidian's
+    // htmlToMarkdown mishandles a <pre> nested inside these inline elements — it collapses
+    // the code's newlines to spaces and wraps the whole thing in stray inline-code
+    // backticks. Rewrite each <code-block> down to a bare <pre><code> (the same clean
+    // shape ChatGPT/Claude emit) so htmlToMarkdown produces a proper fenced block. The
+    // header label becomes the fence's language.
+    html = html.replace(/<code-block\b[^>]*>([\s\S]*?)<\/code-block>/gi, (match, inner) => {
+        const preMatch = inner.match(/<pre\b[^>]*>([\s\S]*?)<\/pre>/i);
+        if (!preMatch) return match;
+        let body = preMatch[1];
+        const innerCode = body.match(/<code\b[^>]*>([\s\S]*?)<\/code>/i);
+        if (innerCode) body = innerCode[1];
+        // The language label sits in a span immediately before the buttons div.
+        const langMatch = inner.match(/<span\b[^>]*>([A-Za-z0-9+#.\-]+)<\/span>\s*<div\b[^>]*class="[^"]*buttons/i);
+        const lang = langMatch ? langMatch[1].toLowerCase() : '';
+        const classAttr = lang ? ` class="language-${lang}"` : '';
+        return `<pre><code${classAttr}>${body}</code></pre>`;
+    });
+
+    // 2. Replace <br> with \n INSIDE <pre> or <code> blocks.
     html = html.replace(/<(pre|code)\b[^>]*>(.*?)<\/\1>/gis, (match, tag, content) => {
         return `<${tag}>` + content.replace(/<br\s*\/?>/gi, '\n') + `</${tag}>`;
     });
 
-    // 2. Fix for partial code block copies (where the HTML contains no structural elements)
+    // 3. Fix for partial code block copies (where the HTML contains no structural elements)
     // If the copied fragment has no block elements, but the plain text has newlines,
     // the text was copied from a pre-formatted container so we need to convert \n to <br>.
     if (plainText.includes('\n')) {
@@ -321,6 +396,55 @@ function reconstructCodeFencesFromLabels(text) {
     return result.join('\n');
 }
 
+// Some sources yield a code block collapsed onto a single line, which is not valid
+// Markdown — the fences must sit on their own lines. Two observed shapes:
+//   ``` some command ```                 (bare collapsed fence)
+//   ` ``` some command ``` `             (Gemini: the whole fence wrapped in an
+//                                          inline-code span with space padding, because
+//                                          htmlToMarkdown saw backticks in the content)
+// Expand either into a proper multi-line block so the code-block splitter and Obsidian's
+// renderer treat it as a real code block. The optional `+ groups match/discard the inline
+// wrapper. Only matches lines that both open AND close a fence; genuine multi-line fences
+// (a newline right after the opening ```) never match. A body that itself contains ``` is
+// left alone to avoid mangling.
+function expandSingleLineFences(text) {
+    return text.replace(
+        /^([ \t]*)(?:`+[ \t]*)?```([a-zA-Z0-9+#\-_]*)[ \t]+(.+?)[ \t]*```(?:[ \t]*`+)?[ \t]*$/gm,
+        (m, indent, lang, body) => {
+            if (body.includes('```')) return m;
+            return indent + '```' + lang + '\n' + indent + body + '\n' + indent + '```';
+        }
+    );
+}
+
+// Converts any fenced code block(s) in text back to plain unfenced lines (drops the
+// ```lang / ``` delimiter lines, keeps the code content). Used by the bypass paste
+// handler so it can still get list/heading structure from htmlToMarkdown without ever
+// introducing a code fence that wasn't explicitly requested.
+function unwrapCodeFences(text) {
+    return text.replace(/^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n([\s\S]*?)^[ \t]*```[ \t]*(?:\r?\n|$)/gm, '$1');
+}
+
+// Converts a fenced code block that holds exactly one line of content AND has no
+// language label (bare ```) into inline `code` on its own line. Labeled fences
+// (```python etc.) and multi-line blocks are left untouched. Runs as a post-pass on
+// the fully-formatted text, so language-label normalization and code-block padding
+// have already settled. Bodies containing a backtick are left as blocks, since they
+// can't be represented safely as single-backtick inline code.
+function inlineSingleLineCodeblocks(text) {
+    // The (?:[ \t]*\r?\n)+ before the closing fence tolerates a stray trailing blank
+    // line inside the block (some sources emit one) while still requiring the body to
+    // be a single content line.
+    return text.replace(
+        /(^|\n)[ \t]*```[ \t]*\r?\n([^\n]+?)(?:[ \t]*\r?\n)+[ \t]*```[ \t]*(?=\r?\n|$)/g,
+        (m, lead, body) => {
+            const trimmed = body.trim();
+            if (!trimmed || trimmed.includes('`')) return m;
+            return lead + '`' + trimmed + '`';
+        }
+    );
+}
+
 function stripCodeblockIndentation(codeBlock) {
     const match = codeBlock.match(/^([ \t]*)```/);
     if (match && match[1].length > 0) {
@@ -345,6 +469,12 @@ module.exports = class CleanAIPastePlugin extends Plugin {
             const activeEditor = this.app.workspace.activeEditor;
             if (!activeEditor || !activeEditor.editor) return;
 
+            // Only act when the keystroke happened inside a Markdown editor. Otherwise
+            // Ctrl+Shift+V in a search box, file-rename field, etc. would hijack the
+            // paste into the note behind it.
+            const target = keyEvt.target;
+            if (!(target instanceof HTMLElement) || !target.closest('.cm-editor')) return;
+
             keyEvt.preventDefault();
             keyEvt.stopPropagation();
 
@@ -353,6 +483,11 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 for (const item of items) {
                     const hasHtmlType = item.types.includes('text/html');
                     const hasPlainType = item.types.includes('text/plain');
+
+                    // Skip clipboard items with no text content at all (e.g. an image-only
+                    // item) instead of falling through to an empty-string paste that would
+                    // delete the current selection and insert nothing.
+                    if (!hasHtmlType && !hasPlainType) continue;
 
                     const plainText = hasPlainType
                         ? await (await item.getType('text/plain')).text()
@@ -365,28 +500,49 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                     const isObsidianInternal = html.includes('<!-- obsidian -->');
 
+                    // With cleanup off, bypass pastes the raw plain text verbatim -- no
+                    // HTML->Markdown conversion, so nothing (e.g. code) ever gets wrapped
+                    // in a fence. With cleanup on, reconstruct structure from the HTML
+                    // instead: many sites' text/plain has no list/heading/table markers at
+                    // all (they're CSS-generated, not real text), so raw text alone can't
+                    // preserve lists, headings, or tables. Any fence htmlToMarkdown
+                    // introduces is then unwrapped back to plain lines, since bypass should
+                    // still never introduce a fence that wasn't explicitly requested.
                     let result;
-                    if (isObsidianInternal || !hasHtmlType) {
-                        // Obsidian-internal content or no HTML available: use plain text as-is.
+                    if (!this.settings.cleanupOnBypass || isObsidianInternal || !hasHtmlType) {
                         result = plainText;
                     } else {
-                        // External content (AI chatbots etc.): convert HTML to preserve
-                        // markdown structure (headings, bold, etc.) without plugin transforms.
-                        result = htmlToMarkdown(preprocessHtml(html, plainText));
+                        result = unwrapCodeFences(htmlToMarkdown(preprocessHtml(html, plainText)));
                     }
 
-                    // Optionally apply lightweight cleanup (condense blank lines + strip trailing whitespace).
-                    // Cap at 'standard' line condense where the bypass is meant to be lightweight; heading normalization
-                    // ('standard+headings') is intentionally excluded here.
+                    // Lightweight cleanup: condense blank lines, pad tables so they render,
+                    // and strip trailing whitespace. Heading spacing normalization
+                    // (applyHeadingSpacing) is intentionally excluded — bypass stays light.
                     if (this.settings.cleanupOnBypass) {
                         const bypassMode = this.settings.condenseMode === 'off' ? 'off'
                             : this.settings.condenseMode === 'tight' ? 'tight'
                                 : 'standard';
                         result = condenseBlankLines(result, bypassMode);
+                        result = formatTablePadding(result);
                         result = stripTrailingWhitespaces(result);
+                        result = result.trim();
                     }
 
-                    activeEditor.editor.replaceSelection(result.trim());
+                    if (this.settings.debugMode) {
+                        new DebugPreviewModal(this.app, plainText, html, result, (selectedText) => {
+                            if (selectedText !== null) {
+                                activeEditor.editor.replaceSelection(selectedText);
+                                if (this.settings.enableNotifications) {
+                                    new Notice("Paste formatted by Clean AI Paste!");
+                                }
+                            }
+                        }).open();
+                    } else {
+                        activeEditor.editor.replaceSelection(result);
+                        if (this.settings.enableNotifications) {
+                            new Notice("Paste formatted by Clean AI Paste!");
+                        }
+                    }
                     return;
                 }
             } catch (e) {
@@ -396,6 +552,10 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
         this.registerEvent(
             this.app.workspace.on('editor-paste', (evt, editor) => {
+                // Another plugin may have already handled this paste (e.g. an image-paste
+                // or other cleanup plugin). Defer to it instead of double-inserting.
+                if (evt.defaultPrevented) return;
+
                 const clipboardData = evt.clipboardData;
                 if (!clipboardData || clipboardData.types.includes('Files')) return;
 
@@ -411,14 +571,19 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 // If the content is copied from within Obsidian, completely bypass the plugin
                 if (html.includes('<!-- obsidian -->')) return;
 
+                const plainText = hasText ? clipboardData.getData('text/plain') : '';
+
                 try {
                     evt.preventDefault();
-
-                    const plainText = hasText ? clipboardData.getData('text/plain') : '';
 
                     let rawText = hasHtml
                         ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText)))
                         : plainText;
+
+                    // Repair code blocks that arrived collapsed onto a single line
+                    // (``` cmd ``` or ` ``` cmd ``` `), so the splitter below recognizes
+                    // them as fences.
+                    rawText = expandSingleLineFences(rawText);
 
                     // Split on fenced code blocks.
                     const textSegments = rawText.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$))/m);
@@ -480,6 +645,13 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                                 text = formatHorizontalRules(text);
                             }
 
+                            // Keep a heading tight against a preceding horizontal rule.
+                            // Always runs (independent of the two toggles above) so the
+                            // rule/heading junction is deterministic; must come after
+                            // formatHorizontalRules so it also removes the blank that
+                            // setting adds after ---.
+                            text = tightenRuleHeadingGap(text);
+
                             // Table padding
                             text = formatTablePadding(text);
 
@@ -527,6 +699,10 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                     let formattedText = textSegments.join('').replace(/^\n+|\n+$/g, '');
 
+                    if (this.settings.inlineSingleLineCodeblocks) {
+                        formattedText = inlineSingleLineCodeblocks(formattedText);
+                    }
+
                     if (this.settings.addTrackingSignature) {
                         formattedText =
                             this.settings.trackingSignatureStart + '\n' +
@@ -539,7 +715,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                             if (selectedText !== null) {
                                 editor.replaceSelection(selectedText);
                                 if (this.settings.enableNotifications) {
-                                    new Notice("AI Paste Formatted");
+                                    new Notice("Paste formatted by Clean AI Paste!");
                                 }
                             }
                         }).open();
@@ -552,8 +728,13 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     }
 
                 } catch (error) {
-                    new Notice("Clean AI Paste error: Could not format clipboard data.");
                     console.error("Clean AI Paste plugin error:", error);
+                    if (plainText) {
+                        editor.replaceSelection(plainText);
+                        new Notice("Clean AI Paste error: Formatting failed, pasted raw text instead.");
+                    } else {
+                        new Notice("Clean AI Paste error: Could not format clipboard data.");
+                    }
                 }
             })
         );
@@ -610,9 +791,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', { text: 'Clean AI Paste Settings' });
-
-        containerEl.createEl('h3', { text: 'Formatting & Cleanup' });
+        new Setting(containerEl).setName('Formatting & cleanup').setHeading();
 
         new Setting(containerEl)
             .setName('Spacing normalization')
@@ -697,7 +876,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        containerEl.createEl('h3', { text: 'Markdown Elements' });
+        new Setting(containerEl).setName('Markdown elements').setHeading();
 
         new Setting(containerEl)
             .setName('Unbold headers')
@@ -737,7 +916,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Convert math delimiters')
-            .setDesc('Converts AI-style LaTeX delimiters \\( \\) and \\[ \\] into Obsidian\'s native $ and $$ formats. Works correctly inside table cells.')
+            .setDesc('Converts AI-style LaTeX delimiters \\( \\) and \\[ \\] into Obsidian\'s native $ and $$ formats. Works correctly inside table cells; leaves inline code untouched.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.convertMathDelimiters)
                 .onChange(async (value) => {
@@ -775,11 +954,21 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        containerEl.createEl('h3', { text: 'Bypass Paste (Ctrl+Shift+V / Cmd+Shift+V)' });
+        new Setting(containerEl)
+            .setName('Inline single-line code blocks')
+            .setDesc('Converts a fenced code block that contains only one line into inline `code` (e.g. a copied one-line command). Code blocks with a language label (like ```python) and multi-line blocks are always left as full blocks.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.inlineSingleLineCodeblocks)
+                .onChange(async (value) => {
+                    this.plugin.settings.inlineSingleLineCodeblocks = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl).setName('Bypass paste (Ctrl+Shift+V / Cmd+Shift+V)').setHeading();
 
         new Setting(containerEl)
-            .setName('Lightweight cleanup on bypass')
-            .setDesc('When bypassing (Ctrl+Shift+V / Cmd+Shift+V), still condense blank lines and strip trailing whitespace. Heading normalization is always excluded — bypass is intentionally lightweight.')
+            .setName('Keep Markdown structure on bypass')
+            .setDesc('When on, bypass paste keeps the Markdown structure of the copied content (headings, lists, tables, bold, links) — but never wraps anything in a code fence — and does light cleanup: condensing blank lines (following the Spacing normalization setting above) and stripping trailing whitespace. When off, bypass inserts the clipboard\'s raw plain text exactly as copied, completely untouched.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.cleanupOnBypass)
                 .onChange(async (value) => {
@@ -787,7 +976,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        containerEl.createEl('h3', { text: 'AI Tracking & Notifications' });
+        new Setting(containerEl).setName('AI tracking & notifications').setHeading();
 
         new Setting(containerEl)
             .setName('Add tracking signature')
@@ -836,7 +1025,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        containerEl.createEl('h3', { text: 'Troubleshooting' });
+        new Setting(containerEl).setName('Troubleshooting').setHeading();
 
         new Setting(containerEl)
             .setName('Enable Debug/Preview Mode')
