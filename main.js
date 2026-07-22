@@ -91,9 +91,7 @@ function normalizeLanguageLabel(text, codeBlock) {
             let prefixToKeep = match[0].startsWith('\n') ? '\n' : '';
 
             if (/^[ \t]*```\s*\n/.test(codeBlock)) {
-                // Only treat the trailing word as a language label if it is a known
-                // programming language — prevents English words like "or"/"and"/"vs"
-                // that appear between two code blocks from being consumed as labels.
+                // Only treat the trailing word as a language label if it is a known programming language
                 if (KNOWN_CODE_LANGUAGES.has(lang.toLowerCase())) {
                     text = textTrimmed.substring(0, textTrimmed.length - match[0].length) + prefixToKeep + trailing;
                     codeBlock = codeBlock.replace(/^([ \t]*)```\s*\n/, '$1```' + lang + '\n');
@@ -160,8 +158,6 @@ function condenseBlankLines(text, mode) {
 function applyHeadingSpacing(text, blankBefore, removeBlankAfter) {
     if (blankBefore) {
         // Add a blank line before a heading when the preceding line is not already blank.
-        // Runs on content directly before a heading like paragraphs, list items,
-        // or other headings, so consecutive headings always get a gap between them.
         text = text.replace(/([^\n])\n(#{1,6}\s)/gm, '$1\n\n$2');
     }
     if (removeBlankAfter) {
@@ -207,20 +203,13 @@ function formatHorizontalRules(text) {
 }
 
 function tightenRuleHeadingGap(text) {
-    // A heading placed directly after a horizontal rule reads better with no blank line
-    // between them — the rule + heading already form a strong visual break, so a gap there
-    // is redundant. This deterministically resolves the otherwise-conflicting "Format
-    // horizontal rules" (adds a blank after ---) and "Add blank line before headings"
-    // (adds a blank before headings) settings at this one junction: the rule/heading pair
-    // is always kept tight. Runs regardless of those two toggles. Only fires when a gap
-    // actually exists; rule-then-paragraph and standalone headings are left untouched.
+    // Removes blank line between a horizontal rule and a heading that directly follows it.
     return text.replace(/(^[ \t]*-{3,}[ \t]*\r?\n)(?:[ \t\xA0]*\r?\n)+([ \t]*#{1,6}[ \t])/gm, '$1$2');
 }
 
 function formatTablePadding(text) {
     // Table row = leading pipe + at least one more pipe (htmlToMarkdown emits bordered
-    // rows like `| a | b |`). Excludes single-leading-pipe line art such as nmap's
-    // `| ssh-hostkey:` / `|_...` output, which would otherwise be mistaken for a table.
+    // rows like `| a | b |`).
     text = text.replace(/(^(?![ \t]*\|[^\n]*\|)[^\n]+)\n+([ \t]*\|[^\n]*\|)/gm, '$1\n\n$2');
     return text.replace(/(^[ \t]*\|[^\n]*\|[^\n]*\n)(?![ \t]*\|[^\n]*\||\n|$)/gm, '$1\n');
 }
@@ -235,15 +224,11 @@ function stripTrailingWhitespaces(text) {
 
 function stripEmojis(text, allowlist) {
     // Matches a run of emoji chars together with any spaces/tabs on either side, so we
-    // can collapse to a single space only when the emoji sat between two words -- and
-    // leave everything else (e.g. aligned columns in pasted terminal output) untouched.
+    // can collapse to a single space only when the emoji sat between two words.
     const emojiRun = /([ \t]*)[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]+([ \t]*)/gu;
-    // When only ONE side had whitespace (e.g. "Press \u2318C" \u2014 a space before the emoji but
-    // none after, since it's glued to "C"), collapsing to '' would delete the emoji AND
-    // its space, gluing "Press" to "C" into "PressC". Instead, keep a single space when
-    // the whitespace-less side is a word/symbol character (so removal doesn't fuse two
-    // adjacent tokens like "Press"+"C" or "and"+"\u21e5") but NOT when it's punctuation
-    // (so "Hello \ud83d\ude00." still becomes "Hello." rather than "Hello .").
+    // When only ONE side had whitespace, keep a single space when
+    // the whitespace-less side is a word/symbol character so removal doesn't fuse two
+    // adjacent tokens but NOT when it's punctuation.
     const isBoundary = (ch) => !ch || ch === '\n' || ch === '\r' || /\p{P}/u.test(ch);
     const collapse = (m, before, after, offset, string) => {
         if (before && after) return ' ';
@@ -296,14 +281,8 @@ const KNOWN_CODE_LANGUAGES = new Set([
 
 // Pre-process clipboard HTML to fix code blocks and line breaks before htmlToMarkdown
 function preprocessHtml(html, plainText = '') {
-    // 1. Normalize Gemini code blocks. Gemini wraps each code block in a <code-block>
-    // custom element containing a header label span ("Bash"), download/copy buttons, and
-    // the actual <pre><code> buried several inline custom elements deep. Obsidian's
-    // htmlToMarkdown mishandles a <pre> nested inside these inline elements — it collapses
-    // the code's newlines to spaces and wraps the whole thing in stray inline-code
-    // backticks. Rewrite each <code-block> down to a bare <pre><code> (the same clean
-    // shape ChatGPT/Claude emit) so htmlToMarkdown produces a proper fenced block. The
-    // header label becomes the fence's language.
+    // Normalize Gemini code blocks, turning Gemini's code block from <code-block>
+    // to a <pre><code> (the same clean shape as ChatGPT/Claude) so htmlToMarkdown produces a proper fenced block.
     html = html.replace(/<code-block\b[^>]*>([\s\S]*?)<\/code-block>/gi, (match, inner) => {
         const preMatch = inner.match(/<pre\b[^>]*>([\s\S]*?)<\/pre>/i);
         if (!preMatch) return match;
@@ -317,12 +296,12 @@ function preprocessHtml(html, plainText = '') {
         return `<pre><code${classAttr}>${body}</code></pre>`;
     });
 
-    // 2. Replace <br> with \n INSIDE <pre> or <code> blocks.
+    // Replace <br> with \n INSIDE <pre> or <code> blocks.
     html = html.replace(/<(pre|code)\b[^>]*>(.*?)<\/\1>/gis, (match, tag, content) => {
         return `<${tag}>` + content.replace(/<br\s*\/?>/gi, '\n') + `</${tag}>`;
     });
 
-    // 3. Fix for partial code block copies (where the HTML contains no structural elements)
+    // Fix for partial code block copies (where the HTML contains no structural elements)
     // If the copied fragment has no block elements, but the plain text has newlines,
     // the text was copied from a pre-formatted container so we need to convert \n to <br>.
     if (plainText.includes('\n')) {
@@ -397,16 +376,11 @@ function reconstructCodeFencesFromLabels(text) {
 }
 
 // Some sources yield a code block collapsed onto a single line, which is not valid
-// Markdown — the fences must sit on their own lines. Two observed shapes:
+// Two observed shapes:
 //   ``` some command ```                 (bare collapsed fence)
-//   ` ``` some command ``` `             (Gemini: the whole fence wrapped in an
-//                                          inline-code span with space padding, because
-//                                          htmlToMarkdown saw backticks in the content)
-// Expand either into a proper multi-line block so the code-block splitter and Obsidian's
-// renderer treat it as a real code block. The optional `+ groups match/discard the inline
-// wrapper. Only matches lines that both open AND close a fence; genuine multi-line fences
-// (a newline right after the opening ```) never match. A body that itself contains ``` is
-// left alone to avoid mangling.
+//   ` ``` some command ``` `             (Gemini: the whole fence wrapped in an inline-code span with space padding)
+// Expand into a proper multi-line block so the code-block splitter and Obsidian's
+// renderer treat it as a real code block.
 function expandSingleLineFences(text) {
     return text.replace(
         /^([ \t]*)(?:`+[ \t]*)?```([a-zA-Z0-9+#\-_]*)[ \t]+(.+?)[ \t]*```(?:[ \t]*`+)?[ \t]*$/gm,
@@ -502,7 +476,8 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                     // With cleanup off, bypass pastes the raw plain text verbatim -- no
                     // HTML->Markdown conversion, so nothing (e.g. code) ever gets wrapped
-                    // in a fence. With cleanup on, reconstruct structure from the HTML
+                    // in a fence. 
+                    // With cleanup on, reconstruct structure from the HTML
                     // instead: many sites' text/plain has no list/heading/table markers at
                     // all (they're CSS-generated, not real text), so raw text alone can't
                     // preserve lists, headings, or tables. Any fence htmlToMarkdown
@@ -645,11 +620,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                                 text = formatHorizontalRules(text);
                             }
 
-                            // Keep a heading tight against a preceding horizontal rule.
-                            // Always runs (independent of the two toggles above) so the
-                            // rule/heading junction is deterministic; must come after
-                            // formatHorizontalRules so it also removes the blank that
-                            // setting adds after ---.
+                            // Remove new line between a horizontal rule and a heading
                             text = tightenRuleHeadingGap(text);
 
                             // Table padding
