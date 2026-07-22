@@ -1,0 +1,96 @@
+name: Bug report
+description: Create a report to help us improve
+title: "[Bug]: "
+labels: ["bug"]
+assignees:
+  - GoSlowPoke168
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is, what you expected to happen, and what actually happened.
+    validations:
+      required: true
+
+  - type: input
+    id: ai_source
+    attributes:
+      label: AI Source
+      description: Which AI tool did the pasted content come from, including model name and version.
+      placeholder: "e.g., Claude Sonnet 5, ChatGPT (GPT-5.6 Sol), Gemini 3.1 Pro"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "e.g., Windows 11, macOS"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: "e.g., Chrome, Firefox, MSEdge"
+    validations:
+      required: true
+
+  - type: textarea
+    id: plugin_settings
+    attributes:
+      label: Plugin Settings
+      description: |
+        List any non-default settings you are using, OR attach your `.obsidian/plugins/clean-ai-paste/data.json` file.
+        To attach it: drag and drop the file into this box (rename it to `data.json.txt` or zip it first — GitHub's
+        attachment uploader doesn't accept raw `.json` files), or just paste its contents below.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Debug/Preview Data (IMPORTANT)
+        Please turn on **Debug/Preview Mode** in the settings, attempt the paste again, and provide the output below so the issue can be reproduced.
+
+  - type: textarea
+    id: raw_plain_text
+    attributes:
+      label: Raw Plain Text
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: raw_html
+    attributes:
+      label: Raw HTML
+      render: html
+    validations:
+      required: true
+
+  - type: textarea
+    id: formatted_text
+    attributes:
+      label: Formatted Text
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots (if applicable)
+      description: If applicable, add screenshots to help explain your problem.
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional context (if applicable)
+      description: Add any other context about the problem here.
+    validations:
+      required: false
