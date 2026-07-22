@@ -70,7 +70,6 @@ These actions happen on every external paste, regardless of your settings:
 1. **External paste interception** — On a normal `Ctrl+V`, content copied from inside Obsidian passes through completely untouched; the plugin's formatting only activates for content from outside (browsers, AI chat interfaces, etc.). (A bypass `Ctrl+Shift+V` with *Keep Markdown structure on bypass* enabled may still apply its light cleanup to internal content — use a normal `Ctrl+V` for a truly untouched internal paste.)
 2. **HTML → Markdown conversion** — Reads `text/html` from the clipboard and converts it to native Markdown using Obsidian's built-in engine, preserving headings, bold, lists, links, and code blocks.
 3. **Table & blockquote padding** — Always adds a blank line before/after tables and after blockquotes so they render correctly in all Markdown contexts. This cannot be toggled off, but it only adds lines where they are structurally required.
-4. **Heading tight against a horizontal rule** — When a heading comes directly after a horizontal rule (`---`), any blank line between them is removed so the two stay tight. This is always applied — it deterministically settles the otherwise-conflicting *Format Horizontal Lines* and *Add blank line before headings* options at that specific junction. Rules followed by ordinary text keep their blank line as usual.
 
 Everything in the [Features](#features) section is applied on top of this baseline and can be individually toggled and customized.
 
