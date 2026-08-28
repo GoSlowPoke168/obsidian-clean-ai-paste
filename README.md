@@ -136,4 +136,4 @@ Issue templates are provided to make reporting bugs and requesting features as q
 ## Support the Project
 If you find this plugin useful, please consider giving it a star on GitHub or consider supporting its development!
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/jeremyhou)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-F16061?logo=ko-fi&logoColor=white&style=for-the-badge)](https://ko-fi.com/jeremyhou)
