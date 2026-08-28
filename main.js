@@ -20,8 +20,6 @@ const DEFAULT_SETTINGS = {
     paddingBeforeCodeblock: true,
     paddingAfterCodeblock: true,
     inlineSingleLineCodeblocks: false,
-    // Bypass Paste (Ctrl+Shift+V)
-    cleanupOnBypass: true,
     // AI Tracking & Notifications
     addTrackingSignature: false,
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
@@ -208,10 +206,52 @@ function tightenRuleHeadingGap(text) {
 }
 
 function formatTablePadding(text) {
-    // Table row = leading pipe + at least one more pipe (htmlToMarkdown emits bordered
-    // rows like `| a | b |`).
-    text = text.replace(/(^(?![ \t]*\|[^\n]*\|)[^\n]+)\n+([ \t]*\|[^\n]*\|)/gm, '$1\n\n$2');
-    return text.replace(/(^[ \t]*\|[^\n]*\|[^\n]*\n)(?![ \t]*\|[^\n]*\||\n|$)/gm, '$1\n');
+    // Pipe-delimited lines only form a Markdown table when a delimiter row
+    // (`| --- | :-: |`) follows the header row — that is what Obsidian actually renders.
+    // Requiring the delimiter row is what keeps whitespace-sensitive line art from being
+    // mistaken for a table and padded apart: ASCII box drawings (`+---+` borders, prose
+    // in the cells) and single-leading-pipe output such as nmap's `| ssh-hostkey:` /
+    // `|_...` never have one.
+    const isPipeRow = (line) => /^[ \t]*\|.*\|/.test(line);
+    const isBlank = (line) => /^[ \t\xA0]*$/.test(line);
+    const isDelimRow = (line) => {
+        // The pipe check also stops a bare `---` horizontal rule matching as a delimiter.
+        if (!line.includes('|')) return false;
+        const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|');
+        return cells.every((cell) => /^\s*:?-+:?\s*$/.test(cell));
+    };
+
+    const lines = text.split('\n');
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+        if (!(isPipeRow(lines[i]) && i + 1 < lines.length && isDelimRow(lines[i + 1]))) {
+            out.push(lines[i]);
+            i++;
+            continue;
+        }
+
+        // Exactly one blank line between any preceding content and the table.
+        while (out.length > 0 && isBlank(out[out.length - 1])) out.pop();
+        if (out.length > 0) out.push('');
+
+        out.push(lines[i], lines[i + 1]);
+        i += 2;
+        while (i < lines.length && isPipeRow(lines[i])) {
+            out.push(lines[i]);
+            i++;
+        }
+
+        // And exactly one before whatever follows it. When the table ends the text, any
+        // trailing blank lines are left as they were.
+        let next = i;
+        while (next < lines.length && isBlank(lines[next])) next++;
+        if (next < lines.length) {
+            out.push('');
+            i = next;
+        }
+    }
+    return out.join('\n');
 }
 
 function formatBlockquotePadding(text) {
@@ -391,14 +431,6 @@ function expandSingleLineFences(text) {
     );
 }
 
-// Converts any fenced code block(s) in text back to plain unfenced lines (drops the
-// ```lang / ``` delimiter lines, keeps the code content). Used by the bypass paste
-// handler so it can still get list/heading structure from htmlToMarkdown without ever
-// introducing a code fence that wasn't explicitly requested.
-function unwrapCodeFences(text) {
-    return text.replace(/^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n([\s\S]*?)^[ \t]*```[ \t]*(?:\r?\n|$)/gm, '$1');
-}
-
 // Converts a fenced code block that holds exactly one line of content AND has no
 // language label (bare ```) into inline `code` on its own line. Labeled fences
 // (```python etc.) and multi-line blocks are left untouched. Runs as a post-pass on
@@ -458,50 +490,27 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     const hasHtmlType = item.types.includes('text/html');
                     const hasPlainType = item.types.includes('text/plain');
 
-                    // Skip clipboard items with no text content at all (e.g. an image-only
-                    // item) instead of falling through to an empty-string paste that would
-                    // delete the current selection and insert nothing.
-                    if (!hasHtmlType && !hasPlainType) continue;
+                    // Bypass inserts the plain text verbatim, so an item without a
+                    // text/plain flavor (e.g. an image-only item) has nothing to paste.
+                    // Skip it instead of falling through to an empty-string paste that
+                    // would delete the current selection and insert nothing.
+                    if (!hasPlainType) continue;
 
-                    const plainText = hasPlainType
-                        ? await (await item.getType('text/plain')).text()
-                        : '';
+                    const plainText = await (await item.getType('text/plain')).text();
 
+                    // Read only for the Debug/Preview modal's HTML pane — the result
+                    // itself never touches the HTML flavor.
                     let html = '';
                     if (hasHtmlType) {
                         html = await (await item.getType('text/html')).text();
                     }
 
-                    const isObsidianInternal = html.includes('<!-- obsidian -->');
-
-                    // With cleanup off, bypass pastes the raw plain text verbatim -- no
-                    // HTML->Markdown conversion, so nothing (e.g. code) ever gets wrapped
-                    // in a fence. 
-                    // With cleanup on, reconstruct structure from the HTML
-                    // instead: many sites' text/plain has no list/heading/table markers at
-                    // all (they're CSS-generated, not real text), so raw text alone can't
-                    // preserve lists, headings, or tables. Any fence htmlToMarkdown
-                    // introduces is then unwrapped back to plain lines, since bypass should
-                    // still never introduce a fence that wasn't explicitly requested.
-                    let result;
-                    if (!this.settings.cleanupOnBypass || isObsidianInternal || !hasHtmlType) {
-                        result = plainText;
-                    } else {
-                        result = unwrapCodeFences(htmlToMarkdown(preprocessHtml(html, plainText)));
-                    }
-
-                    // Lightweight cleanup: condense blank lines, pad tables so they render,
-                    // and strip trailing whitespace. Heading spacing normalization
-                    // (applyHeadingSpacing) is intentionally excluded — bypass stays light.
-                    if (this.settings.cleanupOnBypass) {
-                        const bypassMode = this.settings.condenseMode === 'off' ? 'off'
-                            : this.settings.condenseMode === 'tight' ? 'tight'
-                                : 'standard';
-                        result = condenseBlankLines(result, bypassMode);
-                        result = formatTablePadding(result);
-                        result = stripTrailingWhitespaces(result);
-                        result = result.trim();
-                    }
+                    // Bypass paste is exactly that: the clipboard's raw text/plain, with
+                    // no HTML->Markdown conversion and no transforms. Whitespace-sensitive
+                    // content (ASCII tables, aligned terminal output, code) therefore
+                    // survives byte-for-byte, matching Obsidian's own plain-text paste.
+                    // Use a normal Ctrl/Cmd+V to get the formatting pipeline instead.
+                    const result = plainText;
 
                     if (this.settings.debugMode) {
                         new DebugPreviewModal(this.app, plainText, html, result, (selectedText) => {
@@ -932,18 +941,6 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.inlineSingleLineCodeblocks)
                 .onChange(async (value) => {
                     this.plugin.settings.inlineSingleLineCodeblocks = value;
-                    await this.plugin.saveSettings();
-                }));
-
-        new Setting(containerEl).setName('Bypass paste (Ctrl+Shift+V / Cmd+Shift+V)').setHeading();
-
-        new Setting(containerEl)
-            .setName('Keep Markdown structure on bypass')
-            .setDesc('When on, bypass paste keeps the Markdown structure of the copied content (headings, lists, tables, bold, links) — but never wraps anything in a code fence — and does light cleanup: condensing blank lines (following the Spacing normalization setting above) and stripping trailing whitespace. When off, bypass inserts the clipboard\'s raw plain text exactly as copied, completely untouched.')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.cleanupOnBypass)
-                .onChange(async (value) => {
-                    this.plugin.settings.cleanupOnBypass = value;
                     await this.plugin.saveSettings();
                 }));
 
