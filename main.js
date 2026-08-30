@@ -1091,7 +1091,19 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('↳ One-off debug paste')
-            .setDesc('The "Clean AI Paste: Paste with Debug/Preview" command opens that same popup for a single paste, without leaving Debug/Preview Mode on. It ships without a hotkey so it can\'t clash with your existing ones — assign one under Settings → Hotkeys, or run it from the command palette.');
+            .setDesc('The "Paste with Debug/Preview" command opens that same popup for a single paste, without leaving Debug/Preview Mode on. It ships without a hotkey so it can\'t clash with your existing ones.')
+            .addButton(button => button
+                .setButtonText('Assign a hotkey')
+                .onClick(() => {
+                    // app.setting is not part of the public API, so fall back to instructions.
+                    const setting = this.app.setting;
+                    const tab = setting && setting.openTabById && setting.openTabById('hotkeys');
+                    if (tab && tab.setQuery) {
+                        tab.setQuery('Clean AI Paste');
+                    } else {
+                        new Notice('Open Settings → Hotkeys and search for "Clean AI Paste".');
+                    }
+                }));
 
         new Setting(containerEl)
             .setName('Reset settings to default')
