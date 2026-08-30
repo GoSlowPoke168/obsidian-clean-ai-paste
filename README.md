@@ -15,7 +15,9 @@ When you copy text from an AI web interface, the result in Obsidian is often clu
 | Feature          | Original AI Paste                               | With Clean AI Paste                       |
 | :--------------- | :---------------------------------------------- | :---------------------------------------- |
 | **Headers**      | `### **Introduction**`                          | `### Introduction`                        |
-| **Blank Lines**  | `Paragraph.`<br><br>`Next paragraph.`           | `Paragraph.`<br>`Next paragraph.`         |
+| **Blank Lines**  | 3 blank lines between paragraphs                | 1 blank line                              |
+| **Headings**     | `Text`<br><br>`## Heading`<br><br>`Body`        | `Text`<br>`## Heading`<br>`Body`          |
+| **ASCII Tables** | Alignment collapsed to single spaces            | Spacing preserved in a code block         |
 | **Code Blocks**  | `python`<br>` ``` `<br>`print("hi")`<br>` ``` ` | ` ```python `<br>`print("hi")`<br>` ``` ` |
 | **Math (LaTeX)** | `\( x = y \)`                                   | `$ x = y $`                               |
 | **Tracking URLs**| `https://example.com/?utm_source=chatgpt.com`    | `https://example.com/`                     |
@@ -61,7 +63,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 ### AI Tracking & Notifications
 
 - **Add Tracking Signature** — Wraps pasted text with hidden HTML comments (invisible in Reading View) to mark AI-generated content in source mode. The start and end tags are independently configurable.
-- **Enable Paste Notifications** — Shows a brief notice in the corner each time the plugin processes a paste.
+- **Enable Paste Notifications** — Shows a brief notice in the corner each time a normal `Ctrl+V` paste is formatted. Bypass paste never notifies.
 
 ### Troubleshooting
 
