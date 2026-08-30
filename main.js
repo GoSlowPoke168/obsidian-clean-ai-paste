@@ -20,6 +20,8 @@ const DEFAULT_SETTINGS = {
     paddingBeforeCodeblock: true,
     paddingAfterCodeblock: true,
     inlineSingleLineCodeblocks: false,
+    // Bypass Paste (Ctrl+Shift+V)
+    bypassRawText: false,
     // AI Tracking & Notifications
     addTrackingSignature: false,
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
@@ -500,28 +502,37 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                     const plainText = await (await item.getType('text/plain')).text();
 
-                    // Read only for the Debug/Preview modal's HTML pane.
                     let html = '';
                     if (hasHtmlType) {
                         html = await (await item.getType('text/html')).text();
                     }
 
-                    const result = plainText;
+                    // Structure only: many sites build list markers in CSS, so raw
+                    // text/plain loses them.
+                    const cursor = activeEditor.editor.getCursor('from');
+                    const linesAbove = [];
+                    for (let i = 0; i < cursor.line; i++) linesAbove.push(activeEditor.editor.getLine(i));
+                    const rawOnly = this.settings.bypassRawText
+                        || !hasHtmlType
+                        || html.includes('<!-- obsidian -->')
+                        || isInsideFencedCode(linesAbove, cursor.line);
+
+                    let result = plainText;
+                    if (!rawOnly) {
+                        result = htmlToMarkdown(preprocessHtml(html, plainText));
+                        result = formatTablePadding(result);
+                        result = formatBlockquotePadding(result);
+                    }
 
                     if (this.settings.debugMode) {
                         new DebugPreviewModal(this.app, plainText, html, result, (selectedText) => {
                             if (selectedText !== null) {
                                 activeEditor.editor.replaceSelection(selectedText);
-                                if (this.settings.enableNotifications) {
-                                    new Notice("Paste formatted by Clean AI Paste!");
-                                }
                             }
                         }).open();
                     } else {
+                        // No notice: bypass formats nothing, so there is nothing to report.
                         activeEditor.editor.replaceSelection(result);
-                        if (this.settings.enableNotifications) {
-                            new Notice("Paste formatted by Clean AI Paste!");
-                        }
                     }
                     return;
                 }
@@ -757,6 +768,11 @@ module.exports = class CleanAIPastePlugin extends Plugin {
         // Migration 4: headingBlankBefore (add) → headingRemoveBlankBefore (remove).
         // Opposite meanings, so the old value is dropped and the new default applies.
         delete this.settings.headingBlankBefore;
+        // Migration 5: cleanupOnBypass=false meant "paste raw" → bypassRawText.
+        if (saved && saved.cleanupOnBypass === false && !('bypassRawText' in saved)) {
+            this.settings.bypassRawText = true;
+        }
+        delete this.settings.cleanupOnBypass;
     }
 
     async saveSettings() {
@@ -949,6 +965,18 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.inlineSingleLineCodeblocks)
                 .onChange(async (value) => {
                     this.plugin.settings.inlineSingleLineCodeblocks = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl).setName('Bypass paste (Ctrl+Shift+V / Cmd+Shift+V)').setHeading();
+
+        new Setting(containerEl)
+            .setName('Paste raw text instead')
+            .setDesc('By default, bypass paste keeps the structure of the copied content (lists, headings, tables, links) but applies none of the formatting rules above. Turn this on to insert the clipboard\'s raw plain text exactly as copied. Note that many sites generate list numbers and bullets in CSS, so raw text can lose them.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.bypassRawText)
+                .onChange(async (value) => {
+                    this.plugin.settings.bypassRawText = value;
                     await this.plugin.saveSettings();
                 }));
 
