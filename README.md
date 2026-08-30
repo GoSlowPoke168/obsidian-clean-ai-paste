@@ -67,7 +67,8 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 
 ### Troubleshooting
 
-- **Debug/Preview Mode** — When enabled, pasting (either `Ctrl+V` or `Ctrl+Shift+V`) opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. You can inspect all three and choose which to insert — useful for understanding exactly why a paste looks the way it does.
+- **Debug/Preview Mode** — When enabled, pasting (either `Ctrl+V` or `Ctrl+Shift+V`) opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. Each panel has a **Copy** button, and you can choose which version to insert — useful for understanding exactly why a paste looks the way it does, and for filing a bug report.
+- **Paste with Debug/Preview** *(command, `Alt+V` by default)* — Opens that same popup for a single paste without turning Debug/Preview Mode on. Rebind or clear it under **Settings → Hotkeys**.
 - **Reset settings to default** — A button at the bottom of the settings tab to instantly restore all toggles to their original state.
 
 ### Baseline Behavior (Always Active)

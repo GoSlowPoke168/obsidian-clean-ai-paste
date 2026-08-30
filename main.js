@@ -476,6 +476,49 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
         this.addSettingTab(new CleanAIPasteSettingTab(this.app, this));
 
+        // Opens the Debug/Preview modal regardless of the debugMode setting.
+        this.addCommand({
+            id: 'paste-with-debug-preview',
+            name: 'Paste with Debug/Preview',
+            hotkeys: [{ modifiers: ['Alt'], key: 'v' }],
+            editorCallback: async (editor) => {
+                try {
+                    const items = await navigator.clipboard.read();
+                    for (const item of items) {
+                        const hasHtmlType = item.types.includes('text/html');
+                        const hasPlainType = item.types.includes('text/plain');
+                        if (!hasHtmlType && !hasPlainType) continue;
+
+                        const plainText = hasPlainType
+                            ? await (await item.getType('text/plain')).text()
+                            : '';
+                        const html = hasHtmlType
+                            ? await (await item.getType('text/html')).text()
+                            : '';
+
+                        let formatted;
+                        try {
+                            formatted = this.formatClipboard(html, plainText, hasHtmlType);
+                        } catch (formatError) {
+                            console.error("Clean AI Paste plugin error:", formatError);
+                            formatted = plainText;
+                        }
+
+                        new DebugPreviewModal(this.app, plainText, html, formatted, (selectedText) => {
+                            if (selectedText !== null) {
+                                editor.replaceSelection(selectedText);
+                            }
+                        }).open();
+                        return;
+                    }
+                    new Notice("Clean AI Paste: clipboard has no text to paste.");
+                } catch (e) {
+                    console.error("Clean AI Paste: debug paste clipboard read failed", e);
+                    new Notice("Clean AI Paste: could not read the clipboard.");
+                }
+            }
+        });
+
         // Intercept Ctrl+Shift+V / Cmd+Shift+V at the keydown level.
         this.registerDomEvent(document, 'keydown', async (keyEvt) => {
             const isMod = keyEvt.ctrlKey || keyEvt.metaKey;
@@ -582,133 +625,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                         }
                     }
 
-                    let rawText = hasHtml
-                        ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText)))
-                        : plainText;
-
-                    // Repair collapsed fences so the splitter below recognizes them.
-                    rawText = expandSingleLineFences(rawText);
-
-                    // Split on fenced code blocks.
-                    const textSegments = rawText.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$))/m);
-
-                    // If the last text segment contains an unclosed code fence,
-                    // skip all transforms on it to avoid corrupting code content.
-                    const lastIdx = textSegments.length - 1;
-                    const hasUnclosedFence = lastIdx % 2 === 0 && /^[ \t]*```/m.test(textSegments[lastIdx]);
-
-                    for (let i = 0; i < textSegments.length; i++) {
-                        // Skip the last segment if it has an unclosed code fence.
-                        if (hasUnclosedFence && i === lastIdx) break;
-
-                        if (i % 2 === 0) {
-                            let text = textSegments[i];
-
-                            // Language label normalization
-                            if (i + 1 < textSegments.length) {
-                                const normalized = normalizeLanguageLabel(text, textSegments[i + 1]);
-                                text = normalized.text;
-                                textSegments[i + 1] = normalized.codeBlock;
-                            }
-
-                            // Unbold Headers
-                            if (this.settings.unboldHeaders) {
-                                text = unboldHeaders(text);
-                            }
-
-                            // Unbold Links
-                            if (this.settings.unboldLinks) {
-                                text = unboldLinks(text);
-                            }
-
-                            // Header downgrade
-                            if (this.settings.headerDowngradeLevel > 0) {
-                                text = downgradeHeaders(text, this.settings.headerDowngradeLevel);
-                            }
-
-                            // Condense blank lines
-                            if (this.settings.condenseMode !== 'off') {
-                                text = condenseBlankLines(text, this.settings.condenseMode);
-                            }
-
-                            // Heading spacing sub-options (only active in Standard mode)
-                            if (this.settings.condenseMode === 'standard' &&
-                                (this.settings.headingRemoveBlankBefore || this.settings.headingRemoveBlankAfter)) {
-                                text = applyHeadingSpacing(text,
-                                    this.settings.headingRemoveBlankBefore,
-                                    this.settings.headingRemoveBlankAfter);
-                            }
-
-                            // Convert math delimiters
-                            if (this.settings.convertMathDelimiters) {
-                                text = convertMathDelimiters(text);
-                            }
-
-                            // Format horizontal rules
-                            if (this.settings.formatHorizontalRules) {
-                                text = formatHorizontalRules(text);
-                            }
-
-                            // Remove new line between a horizontal rule and a heading
-                            text = tightenRuleHeadingGap(text);
-
-                            // Table padding
-                            text = formatTablePadding(text);
-
-                            // Blockquote padding
-                            text = formatBlockquotePadding(text);
-
-                            // Strip trailing whitespaces
-                            if (this.settings.stripTrailingWhitespaces) {
-                                text = stripTrailingWhitespaces(text);
-                            }
-
-                            // Strip emojis
-                            if (this.settings.stripEmojis) {
-                                text = stripEmojis(text, this.settings.emojiAllowlist);
-                            }
-
-                            // Clean link tracking parameters
-                            if (this.settings.cleanLinkTracking) {
-                                text = stripTrackingParams(text);
-                            }
-
-                            // Code block padding
-                            if (i > 0 && i < textSegments.length - 1 && text.trim() === '') {
-                                text = '\n';
-                            } else {
-                                if (i > 0) {
-                                    if (this.settings.paddingAfterCodeblock || text.trimStart().startsWith('---')) {
-                                        text = '\n' + text.trimStart();
-                                    } else {
-                                        text = text.trimStart();
-                                    }
-                                }
-                                if (i < textSegments.length - 1) {
-                                    text = text.trimEnd() + (this.settings.paddingBeforeCodeblock ? '\n\n' : '\n');
-                                }
-                            }
-
-                            textSegments[i] = text;
-
-                        } else {
-                            // Odd segment = fenced code block. Strip over-indentation only.
-                            textSegments[i] = stripCodeblockIndentation(textSegments[i]);
-                        }
-                    }
-
-                    let formattedText = textSegments.join('').replace(/^\n+|\n+$/g, '');
-
-                    if (this.settings.inlineSingleLineCodeblocks) {
-                        formattedText = inlineSingleLineCodeblocks(formattedText);
-                    }
-
-                    if (this.settings.addTrackingSignature) {
-                        formattedText =
-                            this.settings.trackingSignatureStart + '\n' +
-                            formattedText + '\n' +
-                            this.settings.trackingSignatureEnd;
-                    }
+                    const formattedText = this.formatClipboard(html, plainText, hasHtml);
 
                     if (this.settings.debugMode) {
                         new DebugPreviewModal(this.app, plainText, html, formattedText, (selectedText) => {
@@ -738,6 +655,138 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 }
             })
         );
+    }
+
+    // Shared by the paste handler and the Paste with Debug/Preview command.
+    formatClipboard(html, plainText, hasHtml) {
+        let rawText = hasHtml
+            ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText)))
+            : plainText;
+
+        // Repair collapsed fences so the splitter below recognizes them.
+        rawText = expandSingleLineFences(rawText);
+
+        // Split on fenced code blocks.
+        const textSegments = rawText.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$))/m);
+
+        // If the last text segment contains an unclosed code fence,
+        // skip all transforms on it to avoid corrupting code content.
+        const lastIdx = textSegments.length - 1;
+        const hasUnclosedFence = lastIdx % 2 === 0 && /^[ \t]*```/m.test(textSegments[lastIdx]);
+
+        for (let i = 0; i < textSegments.length; i++) {
+            // Skip the last segment if it has an unclosed code fence.
+            if (hasUnclosedFence && i === lastIdx) break;
+
+            if (i % 2 === 0) {
+                let text = textSegments[i];
+
+                // Language label normalization
+                if (i + 1 < textSegments.length) {
+                    const normalized = normalizeLanguageLabel(text, textSegments[i + 1]);
+                    text = normalized.text;
+                    textSegments[i + 1] = normalized.codeBlock;
+                }
+
+                // Unbold Headers
+                if (this.settings.unboldHeaders) {
+                    text = unboldHeaders(text);
+                }
+
+                // Unbold Links
+                if (this.settings.unboldLinks) {
+                    text = unboldLinks(text);
+                }
+
+                // Header downgrade
+                if (this.settings.headerDowngradeLevel > 0) {
+                    text = downgradeHeaders(text, this.settings.headerDowngradeLevel);
+                }
+
+                // Condense blank lines
+                if (this.settings.condenseMode !== 'off') {
+                    text = condenseBlankLines(text, this.settings.condenseMode);
+                }
+
+                // Heading spacing sub-options (only active in Standard mode)
+                if (this.settings.condenseMode === 'standard' &&
+                    (this.settings.headingRemoveBlankBefore || this.settings.headingRemoveBlankAfter)) {
+                    text = applyHeadingSpacing(text,
+                        this.settings.headingRemoveBlankBefore,
+                        this.settings.headingRemoveBlankAfter);
+                }
+
+                // Convert math delimiters
+                if (this.settings.convertMathDelimiters) {
+                    text = convertMathDelimiters(text);
+                }
+
+                // Format horizontal rules
+                if (this.settings.formatHorizontalRules) {
+                    text = formatHorizontalRules(text);
+                }
+
+                // Remove new line between a horizontal rule and a heading
+                text = tightenRuleHeadingGap(text);
+
+                // Table padding
+                text = formatTablePadding(text);
+
+                // Blockquote padding
+                text = formatBlockquotePadding(text);
+
+                // Strip trailing whitespaces
+                if (this.settings.stripTrailingWhitespaces) {
+                    text = stripTrailingWhitespaces(text);
+                }
+
+                // Strip emojis
+                if (this.settings.stripEmojis) {
+                    text = stripEmojis(text, this.settings.emojiAllowlist);
+                }
+
+                // Clean link tracking parameters
+                if (this.settings.cleanLinkTracking) {
+                    text = stripTrackingParams(text);
+                }
+
+                // Code block padding
+                if (i > 0 && i < textSegments.length - 1 && text.trim() === '') {
+                    text = '\n';
+                } else {
+                    if (i > 0) {
+                        if (this.settings.paddingAfterCodeblock || text.trimStart().startsWith('---')) {
+                            text = '\n' + text.trimStart();
+                        } else {
+                            text = text.trimStart();
+                        }
+                    }
+                    if (i < textSegments.length - 1) {
+                        text = text.trimEnd() + (this.settings.paddingBeforeCodeblock ? '\n\n' : '\n');
+                    }
+                }
+
+                textSegments[i] = text;
+
+            } else {
+                // Odd segment = fenced code block. Strip over-indentation only.
+                textSegments[i] = stripCodeblockIndentation(textSegments[i]);
+            }
+        }
+
+        let formattedText = textSegments.join('').replace(/^\n+|\n+$/g, '');
+
+        if (this.settings.inlineSingleLineCodeblocks) {
+            formattedText = inlineSingleLineCodeblocks(formattedText);
+        }
+
+        if (this.settings.addTrackingSignature) {
+            formattedText =
+                this.settings.trackingSignatureStart + '\n' +
+                formattedText + '\n' +
+                this.settings.trackingSignatureEnd;
+        }
+        return formattedText;
     }
 
     async loadSettings() {
@@ -1104,23 +1153,30 @@ class DebugPreviewModal extends Modal {
 
         const container = contentEl.createEl('div', { attr: { style: 'display: flex; gap: 10px; margin-bottom: 20px; height: 70vh;' } });
 
-        // Plain Text Column
-        const plainCol = container.createEl('div', { attr: { style: 'flex: 1; display: flex; flex-direction: column;' } });
-        plainCol.createEl('h4', { text: 'Clipboard: text/plain', attr: { style: 'margin-top: 0;' } });
-        const plainArea = plainCol.createEl('textarea', { attr: { readonly: true, style: 'flex: 1; resize: none; white-space: pre-wrap; font-family: monospace; font-size: 12px;' } });
-        plainArea.value = this.plainText;
+        const addColumn = (title, value) => {
+            const col = container.createEl('div', { attr: { style: 'flex: 1; display: flex; flex-direction: column; min-width: 0;' } });
+            const header = col.createEl('div', { attr: { style: 'display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;' } });
+            header.createEl('h4', { text: title, attr: { style: 'margin: 0;' } });
 
-        // HTML Column
-        const htmlCol = container.createEl('div', { attr: { style: 'flex: 1; display: flex; flex-direction: column;' } });
-        htmlCol.createEl('h4', { text: 'Clipboard: text/html', attr: { style: 'margin-top: 0;' } });
-        const htmlArea = htmlCol.createEl('textarea', { attr: { readonly: true, style: 'flex: 1; resize: none; white-space: pre-wrap; font-family: monospace; font-size: 12px;' } });
-        htmlArea.value = this.html;
+            const copyBtn = header.createEl('button', { text: 'Copy', attr: { style: 'font-size: 11px; padding: 2px 8px;' } });
+            copyBtn.addEventListener('click', async () => {
+                try {
+                    await navigator.clipboard.writeText(value);
+                    copyBtn.textContent = 'Copied';
+                } catch (e) {
+                    console.error('Clean AI Paste: copy failed', e);
+                    copyBtn.textContent = 'Failed';
+                }
+                setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1200);
+            });
 
-        // Formatted Column
-        const formattedCol = container.createEl('div', { attr: { style: 'flex: 1; display: flex; flex-direction: column;' } });
-        formattedCol.createEl('h4', { text: 'Formatted Text', attr: { style: 'margin-top: 0;' } });
-        const formattedArea = formattedCol.createEl('textarea', { attr: { readonly: true, style: 'flex: 1; resize: none; white-space: pre-wrap; font-family: monospace; font-size: 12px;' } });
-        formattedArea.value = this.formattedText;
+            const area = col.createEl('textarea', { attr: { readonly: true, style: 'flex: 1; resize: none; white-space: pre-wrap; font-family: monospace; font-size: 12px;' } });
+            area.value = value;
+        };
+
+        addColumn('Clipboard: text/plain', this.plainText);
+        addColumn('Clipboard: text/html', this.html);
+        addColumn('Formatted Text', this.formattedText);
 
         const buttonContainer = contentEl.createEl('div', { attr: { style: 'display: flex; justify-content: flex-end; gap: 10px;' } });
 
