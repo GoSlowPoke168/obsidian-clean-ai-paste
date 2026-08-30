@@ -32,7 +32,8 @@ function loadHelpers() {
         'unboldHeaders', 'unboldLinks', 'downgradeHeaders', 'stripEmojis',
         'stripTrailingWhitespaces', 'stripTrackingParams', 'convertMathDelimiters',
         'expandSingleLineFences', 'inlineSingleLineCodeblocks',
-        'reconstructCodeFencesFromLabels', 'stripCodeblockIndentation'
+        'reconstructCodeFencesFromLabels', 'stripCodeblockIndentation',
+        'isInsideFencedCode', 'preprocessHtml', 'normalizeLanguageLabel'
     ];
     return new Function(src + '\nreturn { ' + exported.join(', ') + ' };')();
 }
@@ -119,6 +120,50 @@ check('already-padded table is left as is (idempotent)',
 check('horizontal rule after a pipe row is not a delimiter row',
     H.formatTablePadding(lines('| not | a | table |', '---', 'After')),
     lines('| not | a | table |', '---', 'After'));
+
+// htmlToMarkdown emits `||` for an empty <th>/<td>, which doesn't render.
+check('empty leading header cell is padded',
+    H.formatTablePadding(lines('||**A**|**B**|', '|---|---|---|', '|Row|1|2|')),
+    lines('| |**A**|**B**|', '|---|---|---|', '|Row|1|2|'));
+
+check('empty cell in the middle of a row is padded',
+    H.formatTablePadding(lines('|a|b|c|', '|---|---|---|', '|1||3|')),
+    lines('|a|b|c|', '|---|---|---|', '|1| |3|'));
+
+check('empty trailing cell is padded',
+    H.formatTablePadding(lines('|a|b|c|', '|---|---|---|', '|1|2||')),
+    lines('|a|b|c|', '|---|---|---|', '|1|2| |'));
+
+check('consecutive empty cells are each padded',
+    H.formatTablePadding(lines('|a|b|c|', '|---|---|---|', '|1|||')),
+    lines('|a|b|c|', '|---|---|---|', '|1| | |'));
+
+check('escaped pipes in a cell are not touched',
+    H.formatTablePadding(lines('|a|b|', '|---|---|', '|x \\|\\| y|2|')),
+    lines('|a|b|', '|---|---|', '|x \\|\\| y|2|'));
+
+check('rows already containing spaced cells are unchanged',
+    H.formatTablePadding(lines('| | A | B |', '| --- | --- | --- |', '| Row | 1 | 2 |')),
+    lines('| | A | B |', '| --- | --- | --- |', '| Row | 1 | 2 |'));
+
+// CRLF text reaches formatTablePadding via the plain-text path (no text/html on the
+// clipboard). A blank line is "\r" after splitting on \n, so it must count as blank.
+check('CRLF table already padded is not given extra blank lines',
+    H.formatTablePadding('Intro\r\n\r\n| a | b |\r\n| --- | --- |\r\n| 1 | 2 |\r\n\r\nAfter'),
+    'Intro\r\n\r\n| a | b |\r\n| --- | --- |\r\n| 1 | 2 |\r\n\r\nAfter');
+
+check('CRLF table with no blank lines gets CRLF blanks added',
+    H.formatTablePadding('Intro\r\n| a | b |\r\n| --- | --- |\r\nAfter'),
+    'Intro\r\n\r\n| a | b |\r\n| --- | --- |\r\n\r\nAfter');
+
+check('LF documents still get plain LF blanks',
+    H.formatTablePadding('Intro\n| a | b |\n| --- | --- |\nAfter'),
+    'Intro\n\n| a | b |\n| --- | --- |\n\nAfter');
+
+// Cell padding must only apply inside a real table, never to pipe-containing line art.
+check('ascii art with adjacent pipes is not cell-padded',
+    H.formatTablePadding(lines('+--+--+', '||  ||', '+--+--+')),
+    lines('+--+--+', '||  ||', '+--+--+'));
 
 check('prose containing pipes is not a table',
     H.formatTablePadding(lines('Run `a | b | c` to pipe.', 'Next line.')),
@@ -217,6 +262,311 @@ check('collapsed single-line fence is expanded',
 
 check('trailing whitespace is stripped per line',
     H.stripTrailingWhitespaces('a   \nb\t\n'), 'a\nb\n');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isInsideFencedCode — decides whether a paste lands in literal-text context
+// ─────────────────────────────────────────────────────────────────────────────
+
+// `inside` marks the cursor line; every line before it is what the detector sees.
+const cursorIn = (doc, cursorLine) => H.isInsideFencedCode(doc, cursorLine);
+
+check('cursor on the line after an opening fence is inside',
+    cursorIn(['```', ''], 1), true);
+
+check('cursor after an opening fence with a language label is inside',
+    cursorIn(['```python', ''], 1), true);
+
+check('cursor after a closed block is outside',
+    cursorIn(['```', 'code', '```', ''], 3), false);
+
+check('cursor between two separate blocks is outside',
+    cursorIn(['```', 'a', '```', '', '```', 'b', '```', ''], 7), false);
+
+check('cursor inside the second of two blocks is inside',
+    cursorIn(['```', 'a', '```', '', '```', ''], 5), true);
+
+check('cursor in plain prose is outside',
+    cursorIn(['# Title', '', 'Some prose.', ''], 3), false);
+
+check('cursor at the very start of an empty document is outside',
+    cursorIn([], 0), false);
+
+check('indented fences still count',
+    cursorIn(['  ```', ''], 1), true);
+
+check('tilde fences are recognised',
+    cursorIn(['~~~', ''], 1), true);
+
+// A ``` line inside a ~~~ block is content, not a closing delimiter.
+check('a backtick fence inside a tilde block does not close it',
+    cursorIn(['~~~', '```', ''], 2), true);
+
+check('yaml frontmatter is not mistaken for a fence',
+    cursorIn(['---', 'title: x', '---', '', 'prose', ''], 5), false);
+
+check('longer fences (4+ backticks) are recognised',
+    cursorIn(['````', ''], 1), true);
+
+// Fences inside callouts and blockquotes count too.
+check('fence inside a blockquote is recognised',
+    cursorIn(['> ```', '> code'], 1), true);
+
+check('fence inside a callout is recognised',
+    cursorIn(['> [!note]', '> ```python', '> code'], 2), true);
+
+check('closed blockquote fence leaves the cursor outside',
+    cursorIn(['> ```', '> code', '> ```', '', 'prose'], 4), false);
+
+check('nested blockquote fence is recognised',
+    cursorIn(['> > ```', '> > code'], 1), true);
+
+// A fence at a different quote depth must not close one opened at another depth.
+check('unquoted fence does not close a blockquote fence',
+    cursorIn(['> ```', '```', ''], 2), true);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// preprocessHtml — orphaned table sections
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Claude copies a table as bare <thead>/<tbody> with no <table>. Without the wrapper
+// an HTML parser drops the table tags and concatenates every cell's text.
+const claudeTable =
+    '<html><body><!--StartFragment-->' +
+    '<thead><tr><th scope="col">Structure</th><th scope="col">Order Matters?</th></tr></thead>' +
+    '<tbody><tr><td><strong>Set</strong></td><td>No</td></tr></tbody>' +
+    '<!--EndFragment--></body></html>';
+
+const wrapped = H.preprocessHtml(claudeTable, 'Structure\tOrder Matters?\nSet\tNo');
+check('orphaned thead/tbody gets a <table> wrapper',
+    /<table><thead>[\s\S]*<\/tbody><\/table>/.test(wrapped), true);
+check('wrapping does not duplicate the table content',
+    (wrapped.match(/Structure/g) || []).length, 1);
+
+check('html that already has a <table> is left alone',
+    H.preprocessHtml('<table><tbody><tr><td>a</td></tr></tbody></table>', 'a'),
+    '<table><tbody><tr><td>a</td></tr></tbody></table>');
+
+check('html with no table tags is left alone',
+    H.preprocessHtml('<p>Just a paragraph</p>', 'Just a paragraph'),
+    '<p>Just a paragraph</p>');
+
+// The wrapper must land before the no-block-element check, or a multi-row table
+// whose plain text has newlines would get <br> injected into it instead.
+check('wrapped table is not treated as a structureless fragment',
+    /<br>/.test(wrapped), false);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// preprocessHtml — structureless fragments (no block elements, newlines in plain text)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const frag = (inner) => '<html><body><!--StartFragment-->' + inner + '<!--EndFragment--></body></html>';
+
+// Alignment is load-bearing here, so it must become a <pre> (and so a code block).
+// Only <pre> survives both htmlToMarkdown and Obsidian's proportional-font renderer.
+const asciiFrag = frag(asciiDiagram);
+const asciiOut = H.preprocessHtml(asciiFrag, asciiDiagram);
+check('ascii art becomes a <pre>', /<pre>/.test(asciiOut), true);
+check('ascii art gets no <br> injected', /<br>/.test(asciiOut), false);
+check('ascii art keeps its space runs verbatim',
+    asciiOut.slice(asciiOut.indexOf('<pre>') + 5, asciiOut.indexOf('</pre>')), asciiDiagram);
+
+const indentedCode = 'def f(x):\n    return x + 1';
+check('indented code becomes a <pre>',
+    /<pre>/.test(H.preprocessHtml(frag(indentedCode), indentedCode)), true);
+
+// No significant whitespace: keep the original <br> behavior, unchanged.
+const prose = 'First line.\nSecond line.\nThird line.';
+const proseOut = H.preprocessHtml(frag(prose), prose);
+check('plain multi-line prose is not fenced', /<pre>/.test(proseOut), false);
+check('plain multi-line prose still gets <br>', /<br>/.test(proseOut), true);
+
+// Whitespace inside markup is not alignment — only the text content counts.
+const tagSpaces = '<span  class="x">First line.</span>\nSecond line.';
+check('double space inside a tag does not trigger a code block',
+    /<pre>/.test(H.preprocessHtml(frag(tagSpaces), 'First line.\nSecond line.')), false);
+
+const styledLink = '<a href="http://x" title="a  b">First line.</a>\nSecond line.';
+check('double space inside an attribute value does not trigger a code block',
+    /<pre>/.test(H.preprocessHtml(frag(styledLink), 'First line.\nSecond line.')), false);
+
+// A single space between words is not alignment.
+const singleSpaced = 'apples and pears\nbananas\ncherries';
+check('single-spaced text is not fenced',
+    /<pre>/.test(H.preprocessHtml(frag(singleSpaced), singleSpaced)), false);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// applyHeadingSpacing — the two sub-toggles are independent
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('removeBlankBefore strips the blank line above a heading',
+    H.applyHeadingSpacing(lines('Text', '', '## H', 'Body'), true, false),
+    lines('Text', '## H', 'Body'));
+
+check('removeBlankBefore collapses a run of blank lines above a heading',
+    H.applyHeadingSpacing(lines('Text', '', '', '## H', 'Body'), true, false),
+    lines('Text', '## H', 'Body'));
+
+check('removeBlankBefore is a no-op when there is no blank line',
+    H.applyHeadingSpacing(lines('Text', '## H', 'Body'), true, false),
+    lines('Text', '## H', 'Body'));
+
+check('removeBlankBefore handles consecutive headings',
+    H.applyHeadingSpacing(lines('## A', '', '## B'), true, false),
+    lines('## A', '## B'));
+
+check('removeBlankBefore handles indented headings',
+    H.applyHeadingSpacing(lines('Text', '', '  ### H'), true, false),
+    lines('Text', '  ### H'));
+
+check('removeBlankBefore off leaves the blank line alone',
+    H.applyHeadingSpacing(lines('Text', '', '## H', 'Body'), false, false),
+    lines('Text', '', '## H', 'Body'));
+
+// Both sub-options on: the gap above and below a heading both go.
+check('both remove options together',
+    H.applyHeadingSpacing(lines('Text', '', '## H', '', 'Body'), true, true),
+    lines('Text', '## H', 'Body'));
+
+check('removeBlankAfter drops the blank line below a heading',
+    H.applyHeadingSpacing(lines('## H', '', 'Body'), false, true),
+    lines('## H', 'Body'));
+
+// blankBefore owns the gap between two headings, so removeBlankAfter must not touch it.
+check('removeBlankAfter leaves a heading-to-heading gap alone',
+    H.applyHeadingSpacing(lines('## A', '', '## B'), false, true),
+    lines('## A', '', '## B'));
+
+check('removeBlankAfter leaves a 2+ blank run alone',
+    H.applyHeadingSpacing(lines('## H', '', '', 'Body'), false, true),
+    lines('## H', '', '', 'Body'));
+
+// The old default: only the line below a heading goes, the one above stays.
+check('removeBlankAfter alone leaves the blank above intact',
+    H.applyHeadingSpacing(lines('Text', '', '## H', '', 'Body'), false, true),
+    lines('Text', '', '## H', 'Body'));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// downgradeHeaders
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('headings shift down by the given level',
+    H.downgradeHeaders(lines('# A', '## B'), 1), lines('## A', '### B'));
+
+check('heading depth is capped at 6',
+    H.downgradeHeaders('##### A', 3), '###### A');
+
+check('non-heading lines are untouched by downgrade',
+    H.downgradeHeaders(lines('Text #notatag', '# A'), 1), lines('Text #notatag', '## A'));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// inlineSingleLineCodeblocks (off by default)
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('a bare single-line fence becomes inline code',
+    H.inlineSingleLineCodeblocks('```\nnpm install\n```'), '`npm install`');
+
+check('a labeled fence is never inlined',
+    H.inlineSingleLineCodeblocks('```bash\nnpm install\n```'), '```bash\nnpm install\n```');
+
+check('a multi-line fence is never inlined',
+    H.inlineSingleLineCodeblocks('```\na\nb\n```'), '```\na\nb\n```');
+
+check('a body containing a backtick stays a block',
+    H.inlineSingleLineCodeblocks('```\necho `date`\n```'), '```\necho `date`\n```');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// normalizeLanguageLabel — merges a floating label into the fence below it
+// ─────────────────────────────────────────────────────────────────────────────
+
+const norm = (text, block) => {
+    const r = H.normalizeLanguageLabel(text, block);
+    return [r.text, r.codeBlock];
+};
+
+check('a floating language label moves onto the fence',
+    JSON.stringify(norm('Intro\npython', '```\nprint(1)\n```')),
+    JSON.stringify(['Intro\n', '```python\nprint(1)\n```']));
+
+// The allowlist is what stops ordinary English between two blocks being eaten.
+check('an ordinary word above a fence is not treated as a label',
+    JSON.stringify(norm('Intro\nor', '```\nprint(1)\n```')),
+    JSON.stringify(['Intro\nor', '```\nprint(1)\n```']));
+
+check('a duplicate label above an already-labeled fence is dropped',
+    JSON.stringify(norm('Intro\npython', '```python\nprint(1)\n```')),
+    JSON.stringify(['Intro\n', '```python\nprint(1)\n```']));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// reconstructCodeFencesFromLabels — only for text that arrived with no fences at all
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('a floating label wraps the following block in a fence',
+    H.reconstructCodeFencesFromLabels(lines('python', '', 'print(1)', '')),
+    lines('```python', 'print(1)', '```', ''));
+
+check('every floating label is wrapped, not just the first',
+    H.reconstructCodeFencesFromLabels(lines('python', '', 'print(1)', '', 'bash', '', 'ls -la', '')),
+    lines('```python', 'print(1)', '```', '', '```bash', 'ls -la', '```', ''));
+
+check('text that already has a fence is left completely alone',
+    H.reconstructCodeFencesFromLabels(lines('python', '', 'print(1)', '', '```', 'x', '```')),
+    lines('python', '', 'print(1)', '', '```', 'x', '```'));
+
+check('an unknown word is not treated as a language label',
+    H.reconstructCodeFencesFromLabels(lines('Summary', '', 'Some prose.', '')),
+    lines('Summary', '', 'Some prose.', ''));
+
+// A language name can also be an English word, so the body decides. Prose stays prose,
+// whatever the casing of the word above it.
+check('"Go" above a prose sentence is not a label',
+    H.reconstructCodeFencesFromLabels(lines('Go', '', 'to the next section', '')),
+    lines('Go', '', 'to the next section', ''));
+
+check('"R" above a prose sentence is not a label',
+    H.reconstructCodeFencesFromLabels(lines('R', '', 'is a language', '')),
+    lines('R', '', 'is a language', ''));
+
+check('lowercase "text" above prose is not a label either',
+    H.reconstructCodeFencesFromLabels(lines('text', '', 'follows on from here', '')),
+    lines('text', '', 'follows on from here', ''));
+
+check('multi-line prose is not fenced',
+    H.reconstructCodeFencesFromLabels(lines('Go', '', 'to the next section', 'and read it carefully', '')),
+    lines('Go', '', 'to the next section', 'and read it carefully', ''));
+
+// Capitalized labels must still work — Gemini writes "Bash", "Python".
+check('capitalized "Python" above real code is still a label',
+    H.reconstructCodeFencesFromLabels(lines('Python', '', 'print(1)', '')),
+    lines('```python', 'print(1)', '```', ''));
+
+check('capitalized "Bash" above a command with flags is still a label',
+    H.reconstructCodeFencesFromLabels(lines('Bash', '', 'ls -la /tmp', '')),
+    lines('```bash', 'ls -la /tmp', '```', ''));
+
+check('indented body counts as code',
+    H.reconstructCodeFencesFromLabels(lines('Python', '', 'def f:', '    return 1', '')),
+    lines('```python', 'def f:', '    return 1', '```', ''));
+
+check('lowercase "go" above real code is still a label',
+    H.reconstructCodeFencesFromLabels(lines('go', '', 'fmt.Println("hi")', '')),
+    lines('```go', 'fmt.Println("hi")', '```', ''));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stripCodeblockIndentation
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('a uniformly indented fence is de-indented',
+    H.stripCodeblockIndentation(lines('    ```', '    code', '    ```')),
+    lines('```', 'code', '```'));
+
+check('an unindented fence is unchanged',
+    H.stripCodeblockIndentation(lines('```', 'code', '```')),
+    lines('```', 'code', '```'));
+
+// Only the fence's own indent is removed; relative indentation inside must survive.
+check('relative indentation inside the block survives',
+    H.stripCodeblockIndentation(lines('  ```', '  def f():', '      return 1', '  ```')),
+    lines('```', 'def f():', '    return 1', '```'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@ const { Plugin, htmlToMarkdown, Notice, PluginSettingTab, Setting, Modal } = req
 const DEFAULT_SETTINGS = {
     // Formatting & Cleanup
     condenseMode: 'standard',
-    headingBlankBefore: true,
+    headingRemoveBlankBefore: true,
     headingRemoveBlankAfter: true,
     stripTrailingWhitespaces: true,
     stripEmojis: true,
@@ -153,26 +153,20 @@ function condenseBlankLines(text, mode) {
     return text;
 }
 
-function applyHeadingSpacing(text, blankBefore, removeBlankAfter) {
-    if (blankBefore) {
-        // Add a blank line before a heading when the preceding line is not already blank.
-        text = text.replace(/([^\n])\n(#{1,6}\s)/gm, '$1\n\n$2');
+function applyHeadingSpacing(text, removeBlankBefore, removeBlankAfter) {
+    if (removeBlankBefore) {
+        // Obsidian renders its own space above headings, so the blank line is redundant.
+        text = text.replace(/([^\n])\n(?:[ \t\xA0]*\n)+([ \t]*#{1,6}[ \t])/g, '$1\n$2');
     }
     if (removeBlankAfter) {
-        // Remove the blank line that htmlToMarkdown inserts between a heading and its
-        // immediately following content.
-        // The (?!#{1,6}\s|\n) lookahead prevents firing when:
-        //   - the next line is also a heading (blankBefore already handles that gap)
-        //   - there are 2+ blank lines (those are excessive blanks, not heading gaps)
+        // The lookahead skips heading-to-heading gaps and runs of 2+ blank lines.
         text = text.replace(/(^#{1,6}\s.+$)\n\n(?!#{1,6}\s|\n)/gm, '$1\n');
     }
     return text;
 }
 
 function convertMathDelimiters(text) {
-    // Split on inline code spans (`...`) so LaTeX-looking delimiters quoted inside them
-    // (e.g. `arr\[0\]`) are left untouched -- code/inline-code content should never be
-    // modified.
+    // Split on inline code spans so delimiters quoted inside them are left untouched.
     return text.split(/(`.+?`)/).map((part, i) => {
         if (i % 2 === 1) return part;
         part = part.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
@@ -206,22 +200,21 @@ function tightenRuleHeadingGap(text) {
 }
 
 function formatTablePadding(text) {
-    // Pipe-delimited lines only form a Markdown table when a delimiter row
-    // (`| --- | :-: |`) follows the header row — that is what Obsidian actually renders.
-    // Requiring the delimiter row is what keeps whitespace-sensitive line art from being
-    // mistaken for a table and padded apart: ASCII box drawings (`+---+` borders, prose
-    // in the cells) and single-leading-pipe output such as nmap's `| ssh-hostkey:` /
-    // `|_...` never have one.
+    // Requiring a delimiter row stops ASCII line art being padded like a table.
     const isPipeRow = (line) => /^[ \t]*\|.*\|/.test(line);
-    const isBlank = (line) => /^[ \t\xA0]*$/.test(line);
+    // \r so a blank line still counts as blank in CRLF text.
+    const isBlank = (line) => /^[ \t\xA0\r]*$/.test(line);
+    // `||` doesn't render as an empty cell; a space does. Escaped `\|` never matches.
+    const padEmptyCells = (row) => row.replace(/\|(?=\|)/g, '| ');
     const isDelimRow = (line) => {
-        // The pipe check also stops a bare `---` horizontal rule matching as a delimiter.
         if (!line.includes('|')) return false;
         const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|');
         return cells.every((cell) => /^\s*:?-+:?\s*$/.test(cell));
     };
 
     const lines = text.split('\n');
+    // Inserted blank lines must match the document's line ending, not force LF into CRLF.
+    const blank = /\r\n/.test(text) ? '\r' : '';
     const out = [];
     let i = 0;
     while (i < lines.length) {
@@ -231,23 +224,20 @@ function formatTablePadding(text) {
             continue;
         }
 
-        // Exactly one blank line between any preceding content and the table.
         while (out.length > 0 && isBlank(out[out.length - 1])) out.pop();
-        if (out.length > 0) out.push('');
+        if (out.length > 0) out.push(blank);
 
-        out.push(lines[i], lines[i + 1]);
+        out.push(padEmptyCells(lines[i]), lines[i + 1]);
         i += 2;
         while (i < lines.length && isPipeRow(lines[i])) {
-            out.push(lines[i]);
+            out.push(padEmptyCells(lines[i]));
             i++;
         }
 
-        // And exactly one before whatever follows it. When the table ends the text, any
-        // trailing blank lines are left as they were.
         let next = i;
         while (next < lines.length && isBlank(lines[next])) next++;
         if (next < lines.length) {
-            out.push('');
+            out.push(blank);
             i = next;
         }
     }
@@ -266,9 +256,7 @@ function stripEmojis(text, allowlist) {
     // Matches a run of emoji chars together with any spaces/tabs on either side, so we
     // can collapse to a single space only when the emoji sat between two words.
     const emojiRun = /([ \t]*)[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]+([ \t]*)/gu;
-    // When only ONE side had whitespace, keep a single space when
-    // the whitespace-less side is a word/symbol character so removal doesn't fuse two
-    // adjacent tokens but NOT when it's punctuation.
+    // With whitespace on one side only, keep a space unless the other side is punctuation.
     const isBoundary = (ch) => !ch || ch === '\n' || ch === '\r' || /\p{P}/u.test(ch);
     const collapse = (m, before, after, offset, string) => {
         if (before && after) return ' ';
@@ -341,9 +329,15 @@ function preprocessHtml(html, plainText = '') {
         return `<${tag}>` + content.replace(/<br\s*\/?>/gi, '\n') + `</${tag}>`;
     });
 
-    // Fix for partial code block copies (where the HTML contains no structural elements)
-    // If the copied fragment has no block elements, but the plain text has newlines,
-    // the text was copied from a pre-formatted container so we need to convert \n to <br>.
+    // Claude copies tables without <table>; parsers drop orphaned table tags.
+    if (/<(?:thead|tbody|tfoot|tr)\b/i.test(html) && !/<table\b/i.test(html)) {
+        html = html.replace(
+            /<(?:thead|tbody|tfoot|tr)\b[\s\S]*<\/(?:thead|tbody|tfoot|tr)>/i,
+            (match) => '<table>' + match + '</table>'
+        );
+    }
+
+    // Structureless fragment + newlines in plainText = copied from a pre-formatted container.
     if (plainText.includes('\n')) {
         let prefix = '', content = html, suffix = '';
         const startFrag = html.match(/<!--StartFragment-->/);
@@ -361,25 +355,24 @@ function preprocessHtml(html, plainText = '') {
 
         const blockElementRegex = /<(p|div|pre|table|ul|ol|li|h[1-6]|blockquote|article|section|nav|header|footer|figure|figcaption|br)\b[^>]*>/i;
         if (!blockElementRegex.test(content)) {
-            const fixedContent = content.replace(/\r?\n/g, '<br>');
-            html = prefix + fixedContent + suffix;
+            // Test the text only: whitespace inside tags is markup, not alignment.
+            const textOnly = content.replace(/<[^>]*>/g, '');
+            // Load-bearing alignment only survives as a <pre>, i.e. a fenced code block.
+            html = /  +/.test(textOnly) || /^[ \t]+\S/m.test(textOnly)
+                ? prefix + '<pre>' + content + '</pre>' + suffix
+                : prefix + content.replace(/\r?\n/g, '<br>') + suffix;
         }
     }
 
     return html;
 }
 
-// After htmlToMarkdown runs, some AI interfaces leave a floating language label
-// (e.g. "python" on its own line) above plain-text code because their HTML puts
-// the label in a <div> instead of a class on <code>. This function detects that
-// pattern and wraps the following content in a code block.
-// Only fires when:
-//     1. no fences exist yet
-//     2. the label is a known language
-//     3. the label is surrounded by blank lines.
+// Punctuation, CLI flags or indentation — things prose sentences don't carry.
+const CODE_BODY = /[{};=<>\[\]()|\\$`]|(?:^|\s)-{1,2}[A-Za-z]|^[ \t]{2,}\S/m;
+
+// Fences a floating language label: needs no existing fences, a known language surrounded
+// by blank lines, and a body that looks like code.
 function reconstructCodeFencesFromLabels(text) {
-    // Only run on plain-text pastes that arrived without any fenced code blocks.
-    // If ANY code block exist (from htmlToMarkdown), trust that output.
     if (text.includes('```')) return text;
 
     const lines = text.split('\n');
@@ -397,12 +390,20 @@ function reconstructCodeFencesFromLabels(text) {
         ) {
             // Found a floating label. Consume it, the blank line after it,
             // then all subsequent lines until the next blank line or end.
-            i += 2; // skip label + blank separator
             const codeLines = [];
-            while (i < lines.length && lines[i].trim() !== '') {
-                codeLines.push(lines[i]);
-                i++;
+            let j = i + 2;
+            while (j < lines.length && lines[j].trim() !== '') {
+                codeLines.push(lines[j]);
+                j++;
             }
+            // A language name can also just be an English word ("Go", "Text", "R"), so
+            // only fence when the body carries a code signal rather than reading as prose.
+            if (!CODE_BODY.test(codeLines.join('\n'))) {
+                result.push(lines[i]);
+                i++;
+                continue;
+            }
+            i = j;
             result.push('```' + trimmed.toLowerCase());
             result.push(...codeLines);
             result.push('```');
@@ -415,12 +416,7 @@ function reconstructCodeFencesFromLabels(text) {
     return result.join('\n');
 }
 
-// Some sources yield a code block collapsed onto a single line, which is not valid
-// Two observed shapes:
-//   ``` some command ```                 (bare collapsed fence)
-//   ` ``` some command ``` `             (Gemini: the whole fence wrapped in an inline-code span with space padding)
-// Expand into a proper multi-line block so the code-block splitter and Obsidian's
-// renderer treat it as a real code block.
+// Expands a fence collapsed onto one line — ``` cmd ``` or Gemini's ` ``` cmd ``` `.
 function expandSingleLineFences(text) {
     return text.replace(
         /^([ \t]*)(?:`+[ \t]*)?```([a-zA-Z0-9+#\-_]*)[ \t]+(.+?)[ \t]*```(?:[ \t]*`+)?[ \t]*$/gm,
@@ -431,16 +427,10 @@ function expandSingleLineFences(text) {
     );
 }
 
-// Converts a fenced code block that holds exactly one line of content AND has no
-// language label (bare ```) into inline `code` on its own line. Labeled fences
-// (```python etc.) and multi-line blocks are left untouched. Runs as a post-pass on
-// the fully-formatted text, so language-label normalization and code-block padding
-// have already settled. Bodies containing a backtick are left as blocks, since they
-// can't be represented safely as single-backtick inline code.
+// Turns a single-line unlabeled fence into inline `code`. Runs as a post-pass, after
+// label normalization and padding have settled. Bodies with a backtick stay blocks.
 function inlineSingleLineCodeblocks(text) {
-    // The (?:[ \t]*\r?\n)+ before the closing fence tolerates a stray trailing blank
-    // line inside the block (some sources emit one) while still requiring the body to
-    // be a single content line.
+    // The (?:[ \t]*\r?\n)+ tolerates one stray blank line before the closing fence.
     return text.replace(
         /(^|\n)[ \t]*```[ \t]*\r?\n([^\n]+?)(?:[ \t]*\r?\n)+[ \t]*```[ \t]*(?=\r?\n|$)/g,
         (m, lead, body) => {
@@ -449,6 +439,23 @@ function inlineSingleLineCodeblocks(text) {
             return lead + '`' + trimmed + '`';
         }
     );
+}
+
+// Marker + blockquote depth, so a fence only closes one opened the same way.
+function isInsideFencedCode(lines, lineIndex) {
+    let open = null;
+    for (let i = 0; i < lineIndex && i < lines.length; i++) {
+        const match = lines[i].match(/^[ \t]*((?:>[ \t]*)*)(`{3,}|~{3,})/);
+        if (!match) continue;
+        const depth = (match[1].match(/>/g) || []).length;
+        const marker = match[2][0];
+        if (open === null) {
+            open = { marker, depth };
+        } else if (open.marker === marker && open.depth === depth) {
+            open = null;
+        }
+    }
+    return open !== null;
 }
 
 function stripCodeblockIndentation(codeBlock) {
@@ -475,9 +482,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
             const activeEditor = this.app.workspace.activeEditor;
             if (!activeEditor || !activeEditor.editor) return;
 
-            // Only act when the keystroke happened inside a Markdown editor. Otherwise
-            // Ctrl+Shift+V in a search box, file-rename field, etc. would hijack the
-            // paste into the note behind it.
+            // Editor only, or this hijacks pastes in search boxes and rename fields.
             const target = keyEvt.target;
             if (!(target instanceof HTMLElement) || !target.closest('.cm-editor')) return;
 
@@ -490,26 +495,17 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     const hasHtmlType = item.types.includes('text/html');
                     const hasPlainType = item.types.includes('text/plain');
 
-                    // Bypass inserts the plain text verbatim, so an item without a
-                    // text/plain flavor (e.g. an image-only item) has nothing to paste.
-                    // Skip it instead of falling through to an empty-string paste that
-                    // would delete the current selection and insert nothing.
+                    // No plain text means nothing to paste (e.g. an image-only item).
                     if (!hasPlainType) continue;
 
                     const plainText = await (await item.getType('text/plain')).text();
 
-                    // Read only for the Debug/Preview modal's HTML pane — the result
-                    // itself never touches the HTML flavor.
+                    // Read only for the Debug/Preview modal's HTML pane.
                     let html = '';
                     if (hasHtmlType) {
                         html = await (await item.getType('text/html')).text();
                     }
 
-                    // Bypass paste is exactly that: the clipboard's raw text/plain, with
-                    // no HTML->Markdown conversion and no transforms. Whitespace-sensitive
-                    // content (ASCII tables, aligned terminal output, code) therefore
-                    // survives byte-for-byte, matching Obsidian's own plain-text paste.
-                    // Use a normal Ctrl/Cmd+V to get the formatting pipeline instead.
                     const result = plainText;
 
                     if (this.settings.debugMode) {
@@ -529,6 +525,9 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     }
                     return;
                 }
+
+                // preventDefault() already fired, so say why nothing pasted.
+                new Notice("Clean AI Paste: clipboard has no plain text to paste.");
             } catch (e) {
                 console.error("Clean AI Paste: Shift+V clipboard read failed", e);
             }
@@ -560,13 +559,23 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 try {
                     evt.preventDefault();
 
+                    // Code blocks take literal text. hasText guards against wiping the
+                    // selection with an empty string.
+                    if (hasText) {
+                        const cursor = editor.getCursor('from');
+                        const linesAbove = [];
+                        for (let i = 0; i < cursor.line; i++) linesAbove.push(editor.getLine(i));
+                        if (isInsideFencedCode(linesAbove, cursor.line)) {
+                            editor.replaceSelection(plainText);
+                            return;
+                        }
+                    }
+
                     let rawText = hasHtml
                         ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText)))
                         : plainText;
 
-                    // Repair code blocks that arrived collapsed onto a single line
-                    // (``` cmd ``` or ` ``` cmd ``` `), so the splitter below recognizes
-                    // them as fences.
+                    // Repair collapsed fences so the splitter below recognizes them.
                     rawText = expandSingleLineFences(rawText);
 
                     // Split on fenced code blocks.
@@ -613,9 +622,9 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                             // Heading spacing sub-options (only active in Standard mode)
                             if (this.settings.condenseMode === 'standard' &&
-                                (this.settings.headingBlankBefore || this.settings.headingRemoveBlankAfter)) {
+                                (this.settings.headingRemoveBlankBefore || this.settings.headingRemoveBlankAfter)) {
                                 text = applyHeadingSpacing(text,
-                                    this.settings.headingBlankBefore,
+                                    this.settings.headingRemoveBlankBefore,
                                     this.settings.headingRemoveBlankAfter);
                             }
 
@@ -737,18 +746,17 @@ module.exports = class CleanAIPastePlugin extends Plugin {
         // Re-enable both heading sub-options to preserve old behavior.
         if (saved && saved.condenseMode === 'standard+headings') {
             this.settings.condenseMode = 'standard';
-            if (!('headingBlankBefore' in saved)) {
-                this.settings.headingBlankBefore = true;
-            }
             if (!('headingRemoveBlankAfter' in saved)) {
                 this.settings.headingRemoveBlankAfter = true;
             }
         }
-        // Migration 3: old condenseMode='standard' + ensureHeadingSpacing=true → both heading sub-options.
+        // Migration 3: old condenseMode='standard' + ensureHeadingSpacing=true → heading sub-option.
         if (saved && saved.condenseMode === 'standard' && saved.ensureHeadingSpacing === true) {
-            this.settings.headingBlankBefore = true;
             this.settings.headingRemoveBlankAfter = true;
         }
+        // Migration 4: headingBlankBefore (add) → headingRemoveBlankBefore (remove).
+        // Opposite meanings, so the old value is dropped and the new default applies.
+        delete this.settings.headingBlankBefore;
     }
 
     async saveSettings() {
@@ -792,12 +800,12 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
         // Heading spacing sub-options - only visible when Standard is selected
         if (this.plugin.settings.condenseMode === 'standard') {
             new Setting(containerEl)
-                .setName('↳ Add blank line before headings')
-                .setDesc('Adds a blank line before each heading when there isn\'t one already.')
+                .setName('↳ Remove blank line before headings')
+                .setDesc('Removes the blank line above each heading. Obsidian already renders headings with space above them, so the blank line in the source is usually redundant.')
                 .addToggle(toggle => toggle
-                    .setValue(this.plugin.settings.headingBlankBefore)
+                    .setValue(this.plugin.settings.headingRemoveBlankBefore)
                     .onChange(async (value) => {
-                        this.plugin.settings.headingBlankBefore = value;
+                        this.plugin.settings.headingRemoveBlankBefore = value;
                         await this.plugin.saveSettings();
                     }));
 
@@ -1018,7 +1026,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     new Notice('Clean AI Paste: Settings restored to default');
                 }));
 
-        // Buy Me a Coffee Support Button
+        // Ko-fi Support Button
         const donationDiv = containerEl.createEl('div', {
             attr: { style: 'margin-top: 40px; margin-bottom: 20px; text-align: center;' }
         });
@@ -1028,59 +1036,21 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
             attr: { style: 'margin-bottom: 10px; color: var(--text-muted);' }
         });
 
-        if (!document.getElementById('bmac-cookie-font')) {
-            document.head.createEl('link', {
-                attr: {
-                    id: 'bmac-cookie-font',
-                    rel: 'stylesheet',
-                    href: 'https://fonts.googleapis.com/css2?family=Cookie&display=swap'
-                }
-            });
-        }
-
-        const bmacLink = donationDiv.createEl('a', {
+        const kofiLink = donationDiv.createEl('a', {
             attr: {
-                href: 'https://www.buymeacoffee.com/jeremyhou',
+                href: 'https://ko-fi.com/T5T725W4FX',
                 target: '_blank',
             }
         });
 
-        bmacLink.createEl('img', {
+        kofiLink.createEl('img', {
             attr: {
-                src: 'https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png',
-                alt: 'Buy Me A Coffee',
-                style: 'height: 40px !important; width: 145px !important;'
+                src: 'https://storage.ko-fi.com/cdn/kofi2.png?v=6',
+                alt: 'Buy Me a Coffee at ko-fi.com',
+                height: '36',
+                style: 'border:0px;height:36px;'
             }
         });
-        // Custom Support Button
-        // const bmacButton = bmacLink.createEl('div', {
-        //     attr: {
-        //         style: `
-        //             display: inline-flex; 
-        //             align-items: center; 
-        //             justify-content: center; 
-        //             background-color: #FFDD00; 
-        //             color: #000000; 
-        //             padding: 5px 15px; 
-        //             border-radius: 5px; 
-        //             font-family: 'Cookie', cursive, sans-serif; 
-        //             font-size: 28px; 
-        //             letter-spacing: 0.5px; 
-        //             box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5); 
-        //             border: 1px solid transparent;
-        //             cursor: pointer;
-        //         `
-        //     }
-        // });
-
-        // bmacButton.createEl('span', {
-        //     text: '🧋',
-        //     attr: { style: 'margin-right: 8px; font-size: 24px;' }
-        // });
-
-        // bmacButton.createEl('span', {
-        //     text: 'Buy me a boba tea'
-        // });
 
     }
 }
