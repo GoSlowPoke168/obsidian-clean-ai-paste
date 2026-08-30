@@ -480,7 +480,6 @@ module.exports = class CleanAIPastePlugin extends Plugin {
         this.addCommand({
             id: 'paste-with-debug-preview',
             name: 'Paste with Debug/Preview',
-            hotkeys: [{ modifiers: ['Alt'], key: 'v' }],
             editorCallback: async (editor) => {
                 try {
                     const items = await navigator.clipboard.read();
@@ -1089,6 +1088,10 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     this.plugin.settings.debugMode = value;
                     await this.plugin.saveSettings();
                 }));
+
+        new Setting(containerEl)
+            .setName('↳ One-off debug paste')
+            .setDesc('The "Clean AI Paste: Paste with Debug/Preview" command opens that same popup for a single paste, without leaving Debug/Preview Mode on. It ships without a hotkey so it can\'t clash with your existing ones — assign one under Settings → Hotkeys, or run it from the command palette.');
 
         new Setting(containerEl)
             .setName('Reset settings to default')
