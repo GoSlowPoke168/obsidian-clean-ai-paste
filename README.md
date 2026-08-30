@@ -15,7 +15,7 @@ When you copy text from an AI web interface, the result in Obsidian is often clu
 | Feature          | Original AI Paste                               | With Clean AI Paste                       |
 | :--------------- | :---------------------------------------------- | :---------------------------------------- |
 | **Headers**      | `### **Introduction**`                          | `### Introduction`                        |
-| **Blank Lines**  | `Paragraph.`<br><br><br>`Next paragraph.`       | `Paragraph.`<br><br>`Next paragraph.`     |
+| **Blank Lines**  | Several blank lines between paragraphs          | Exactly one                               |
 | **Headings**     | `Text`<br><br>`## Heading`<br><br>`Body`        | `Text`<br>`## Heading`<br>`Body`          |
 | **ASCII Tables** | `+---+  +---+` *(alignment collapsed)*          | `+---+     +---+` *(spacing preserved)*   |
 | **Code Blocks**  | `python`<br>` ``` `<br>`print("hi")`<br>` ``` ` | ` ```python `<br>`print("hi")`<br>` ``` ` |
