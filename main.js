@@ -1265,7 +1265,7 @@ class DebugPreviewModal extends Modal {
 
         contentEl.createEl('h2', { text: 'Clean AI Paste: Debug/Preview' });
 
-        const container = contentEl.createEl('div', { attr: { style: 'display: flex; gap: 10px; margin-bottom: 20px; height: 70vh;' } });
+        const container = contentEl.createEl('div', { attr: { style: 'display: flex; gap: 10px; margin-bottom: 20px; height: 50vh;' } });
 
         const addColumn = (title, value) => {
             const col = container.createEl('div', { attr: { style: 'flex: 1; display: flex; flex-direction: column; min-width: 0;' } });
