@@ -447,18 +447,19 @@ check('wrapped table is not treated as a structureless fragment',
 
 const frag = (inner) => '<html><body><!--StartFragment-->' + inner + '<!--EndFragment--></body></html>';
 
-// Alignment is load-bearing here, so it must become a <pre> (and so a code block).
-// Only <pre> survives both htmlToMarkdown and Obsidian's proportional-font renderer.
+// Alignment is load-bearing here, so it must become <pre><code> (and so a fenced code
+// block). The fenced-code rule requires pre > code specifically -- a bare <pre> does not
+// qualify, so <pre> alone would silently fail to fence, which is what this guards against.
 const asciiFrag = frag(asciiDiagram);
 const asciiOut = H.preprocessHtml(asciiFrag, asciiDiagram);
-check('ascii art becomes a <pre>', /<pre>/.test(asciiOut), true);
+check('ascii art becomes a <pre><code>', /<pre><code>/.test(asciiOut), true);
 check('ascii art gets no <br> injected', /<br>/.test(asciiOut), false);
 check('ascii art keeps its space runs verbatim',
-    asciiOut.slice(asciiOut.indexOf('<pre>') + 5, asciiOut.indexOf('</pre>')), asciiDiagram);
+    asciiOut.slice(asciiOut.indexOf('<pre><code>') + 11, asciiOut.indexOf('</code></pre>')), asciiDiagram);
 
 const indentedCode = 'def f(x):\n    return x + 1';
-check('indented code becomes a <pre>',
-    /<pre>/.test(H.preprocessHtml(frag(indentedCode), indentedCode)), true);
+check('indented code becomes a <pre><code>',
+    /<pre><code>/.test(H.preprocessHtml(frag(indentedCode), indentedCode)), true);
 
 // No significant whitespace: keep the original <br> behavior, unchanged.
 const prose = 'First line.\nSecond line.\nThird line.';

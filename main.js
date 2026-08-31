@@ -399,9 +399,10 @@ function preprocessHtml(html, plainText = '') {
         if (!blockElementRegex.test(content)) {
             // Test the text only: whitespace inside tags is markup, not alignment.
             const textOnly = content.replace(/<[^>]*>/g, '');
-            // Load-bearing alignment only survives as a <pre>, i.e. a fenced code block.
+            // Load-bearing alignment only survives as a fenced code block. The fenced-code
+            // rule needs pre > code specifically -- a bare <pre> does not qualify.
             html = /  +/.test(textOnly) || /^[ \t]+\S/m.test(textOnly)
-                ? prefix + '<pre>' + content + '</pre>' + suffix
+                ? prefix + '<pre><code>' + content + '</code></pre>' + suffix
                 : prefix + content.replace(/\r?\n/g, '<br>') + suffix;
         }
     }
