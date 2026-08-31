@@ -734,7 +734,7 @@ const DEFAULTS = {
     headingRemoveBlankAfter: true,
     stripEmojis: true,
     stripTechnicalSymbols: false,
-    bypassRawText: false,
+    bypassLegacyStructure: false,
 };
 const migrate = (saved) => H.migrateSettings(saved, DEFAULTS);
 
@@ -770,18 +770,22 @@ check('migration 4: the old heading key is dropped, not carried over',
 check('migration 4: everyone lands on the new default',
     migrate({ headingBlankBefore: false }).headingRemoveBlankBefore, true);
 
-// cleanupOnBypass:false meant "give me raw text on bypass" — that intent must survive.
-check('migration 5: a user who chose raw bypass keeps it',
-    migrate({ cleanupOnBypass: false }).bypassRawText, true);
+// Bypass is raw by default now, so no old bypass value carries over — every install
+// lands on legacy off. bypassRawText only ever existed in unreleased 1.3.0.
+check('migration 5: the 1.2.0 default lands on raw bypass',
+    migrate({ cleanupOnBypass: true }).bypassLegacyStructure, false);
 
-check('migration 5: the 1.2.0 default maps to structure-preserving bypass',
-    migrate({ cleanupOnBypass: true }).bypassRawText, false);
+check('migration 5: a 1.2.0 user who chose raw also lands on raw',
+    migrate({ cleanupOnBypass: false }).bypassLegacyStructure, false);
 
-check('migration 5 defers to an explicit bypassRawText',
-    migrate({ cleanupOnBypass: false, bypassRawText: false }).bypassRawText, false);
+check('migration 5: an unreleased bypassRawText value does not carry over',
+    migrate({ bypassRawText: false }).bypassLegacyStructure, false);
 
-check('migration 5: the old bypass key is dropped',
+check('migration 5: the 1.2.0 bypass key is dropped',
     'cleanupOnBypass' in migrate({ cleanupOnBypass: true }), false);
+
+check('migration 5: the unreleased bypass key is dropped',
+    'bypassRawText' in migrate({ bypassRawText: true }), false);
 
 check('a user\'s own settings are preserved through migration',
     migrate({ condenseMode: 'tight', stripEmojis: false }).stripEmojis, false);

@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
     paddingAfterCodeblock: true,
     inlineSingleLineCodeblocks: false,
     // Bypass Paste (Ctrl+Shift+V)
-    bypassRawText: true,
+    bypassLegacyStructure: false,
     // AI Tracking & Notifications
     addTrackingSignature: false,
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
@@ -544,11 +544,10 @@ function migrateSettings(saved, defaults) {
     // Migration 4: headingBlankBefore (add) → headingRemoveBlankBefore (remove).
     // Opposite meanings, so the old value is dropped and the new default applies.
     delete settings.headingBlankBefore;
-    // Migration 5: cleanupOnBypass=false meant "paste raw" → bypassRawText.
-    if (saved && saved.cleanupOnBypass === false && !('bypassRawText' in saved)) {
-        settings.bypassRawText = true;
-    }
+    // Migration 5: bypass is raw by default now, so neither the 1.2.0 key nor the
+    // unreleased bypassRawText carries over — everyone lands on bypassLegacyStructure.
     delete settings.cleanupOnBypass;
+    delete settings.bypassRawText;
     return settings;
 }
 
@@ -651,15 +650,17 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                         html = await (await item.getType('text/html')).text();
                     }
 
-                    // Structure only: many sites build list markers in CSS, so raw
-                    // text/plain loses them.
-                    const cursor = activeEditor.editor.getCursor('from');
-                    const linesAbove = [];
-                    for (let i = 0; i < cursor.line; i++) linesAbove.push(activeEditor.editor.getLine(i));
-                    const rawOnly = this.settings.bypassRawText
+                    // Raw unless legacy structure mode is on, and even then not for
+                    // Obsidian's own content or inside a code block.
+                    let rawOnly = !this.settings.bypassLegacyStructure
                         || !hasHtmlType
-                        || html.includes('<!-- obsidian -->')
-                        || isInsideFencedCode(linesAbove, cursor.line);
+                        || html.includes('<!-- obsidian -->');
+                    if (!rawOnly) {
+                        const cursor = activeEditor.editor.getCursor('from');
+                        const linesAbove = [];
+                        for (let i = 0; i < cursor.line; i++) linesAbove.push(activeEditor.editor.getLine(i));
+                        rawOnly = isInsideFencedCode(linesAbove, cursor.line);
+                    }
 
                     let result = plainText;
                     if (!rawOnly) {
@@ -1116,21 +1117,14 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName('Bypass paste (Ctrl+Shift+V / Cmd+Shift+V)').setHeading();
 
         new Setting(containerEl)
-            .setName('Paste raw text')
-            .setDesc('On (default): bypass inserts the clipboard\'s plain text exactly as copied — no Markdown conversion at all, so spacing and indentation survive byte-for-byte (ASCII tables, aligned output, indented code). Off: bypass instead keeps Markdown structure such as lists, headings, tables and links, while still skipping every formatting rule above. Note that raw text has no code fences, and some sites generate list bullets in CSS so raw text can lose them.')
+            .setName('Legacy paste')
+            .setDesc('Bypass paste normally inserts the clipboard\'s plain text exactly as copied, so spacing and indentation survive byte-for-byte — ASCII tables, aligned output and indented code all paste intact. Turn this on to restore the older behaviour instead, where bypass converts the clipboard HTML to keep Markdown structure such as lists, headings, tables and links (while still skipping every formatting rule above). Useful for sites that generate list bullets in CSS, since those are missing from plain text.')
             .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.bypassRawText)
+                .setValue(this.plugin.settings.bypassLegacyStructure)
                 .onChange(async (value) => {
-                    this.plugin.settings.bypassRawText = value;
+                    this.plugin.settings.bypassLegacyStructure = value;
                     await this.plugin.saveSettings();
                 }));
-
-        new Setting(containerEl)
-            .setName('↳ Assign a hotkey')
-            .setDesc('The "Paste raw text" command applies this bypass instantly for a single paste, without changing the setting above. It ships without a hotkey so it will not clash with your existing bindings.')
-            .addButton(button => button
-                .setButtonText('Assign a hotkey')
-                .onClick(() => openHotkeySettings(this.app)));
 
         new Setting(containerEl).setName('AI tracking & notifications').setHeading();
 
