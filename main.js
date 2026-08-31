@@ -919,7 +919,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Spacing normalization')
-            .setDesc('Controls how blank lines in pasted text are cleaned up. Standard natural line and paragraph spacing with comfortable room to breathe. Tight removes all blank lines. Off leaves everything untouched.')
+            .setDesc('Controls how blank lines in pasted text are cleaned up. Standard creates natural line and paragraph spacing with comfortable room to breathe. Tight removes all blank lines. Off leaves everything untouched.')
             .addDropdown(dropdown => dropdown
                 .addOptions({
                     'standard': 'Standard - compacts text naturally and cleanly',
@@ -991,7 +991,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
             new Setting(containerEl)
                 .setName('↳ Also strip technical symbols')
-                .setDesc('Removes keyboard and technical symbols such as ⌘ ⌥ ⏎ ⌫ as well. Off by default because these usually carry meaning — stripping them turns "Press ⌘C" into "Press C".')
+                .setDesc('Removes keyboard and technical symbols such as ⌘ ⌥ ⏎ ⌫ as well. Off by default because these may carry meaning — stripping them turns "Press ⌘C" into "Press C".')
                 .addToggle(toggle => toggle
                     .setValue(this.plugin.settings.stripTechnicalSymbols)
                     .onChange(async (value) => {
@@ -1185,6 +1185,15 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     } else {
                         new Notice('Open Settings → Hotkeys and search for "Clean AI Paste".');
                     }
+                }));
+
+        new Setting(containerEl)
+            .setName('Report a bug or request a feature')
+            .setDesc('Opens a GitHub issue form. If reporting a paste that came out wrong, turn on Debug/Preview Mode above first and copy the three panels into the report — that is the fastest way to get it fixed.')
+            .addButton(button => button
+                .setButtonText('Open an issue')
+                .onClick(() => {
+                    window.open('https://github.com/GoSlowPoke168/obsidian-clean-ai-paste/issues/new/choose');
                 }));
 
         new Setting(containerEl)
