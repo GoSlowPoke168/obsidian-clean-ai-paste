@@ -58,6 +58,8 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 - **Padding Before/After Code Blocks** — Independently control whether a blank line is inserted before and after every fenced code block.
 - **Inline Single-Line Code Blocks** — Converts a fenced code block containing only one line (e.g. a copied one-line command) into inline `` `code` ``. Blocks with a language label (like ` ```python `) and multi-line blocks are always kept as full blocks. _(Off by default.)_
 
+> **Note:** For some AI chats, you may need to copy a bit above or below the selected codeblock for the language to be detected, otherwise it would paste as a plain code block.
+
 ### Code Block Intelligence (Always Active)
 
 - **Pasted markup becomes a code block** — XML or HTML source is fenced (` ```xml `) with its indentation intact, instead of being pasted as raw tags that Obsidian's renderer would swallow.
@@ -115,12 +117,12 @@ Simply copy and paste whatever text using the standard shortcut: `Ctrl+V` (Windo
 
 To bypass the plugin's formatting pipeline, use: `Ctrl+Shift+V` (Windows/Linux) or `Cmd+Shift+V` (macOS).
 
-Bypass paste keeps the **structure** of what you copied — lists, numbers, headings, tables, links, bold — and applies none of the formatting rules above. Nothing is restyled, no emojis or tracking parameters are stripped, and spacing is left as-is. It's the fallback for when a normal paste formats something the way you didn't want.
+Bypass paste inserts the clipboard's **raw plain text**, exactly as copied. No Markdown conversion, no formatting rules — spacing and indentation survive byte-for-byte, so ASCII tables, aligned terminal output and indented code paste intact. It's the fallback for when a normal paste formats something the way you didn't want.
 
-It falls back to raw plain text when the clipboard has no HTML, when the content was copied from inside Obsidian, and when your cursor is inside a fenced code block.
+Because it skips conversion entirely, raw text has no code fences, and content from sites that generate list bullets in CSS will lose those bullets — use a normal `Ctrl+V` when you want that structure.
 
-- **Paste raw text instead** _(off by default)_ — Inserts the clipboard's raw plain text exactly as copied. Many sites generate list numbers and bullets in CSS, so raw text can lose them.
-  A **↳ Assign a hotkey** button underneath jumps straight to Settings → Hotkeys, so you can bind the "Paste raw text" command instead of toggling this setting on and off.
+- **Paste raw text** _(on by default)_ — Turn this **off** to have bypass keep Markdown structure instead (lists, headings, tables, links) while still skipping every formatting rule above.
+  A **↳ Assign a hotkey** button underneath jumps straight to Settings → Hotkeys, so you can bind the "Paste raw text" command for a single paste without changing this setting.
 
 ---
 

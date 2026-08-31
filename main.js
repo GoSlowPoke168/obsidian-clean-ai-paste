@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
     paddingAfterCodeblock: true,
     inlineSingleLineCodeblocks: false,
     // Bypass Paste (Ctrl+Shift+V)
-    bypassRawText: false,
+    bypassRawText: true,
     // AI Tracking & Notifications
     addTrackingSignature: false,
     trackingSignatureStart: "<!-- [AI Generated Start] -->",
@@ -1116,8 +1116,8 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName('Bypass paste (Ctrl+Shift+V / Cmd+Shift+V)').setHeading();
 
         new Setting(containerEl)
-            .setName('Paste raw text instead')
-            .setDesc('By default, bypass paste keeps the structure of the copied content (lists, headings, tables, links) but applies none of the formatting rules above. Turn this on to insert the clipboard\'s raw plain text (text/raw) exactly as copied. Note that many sites generate list numbers and bullets in CSS, so raw text can lose them.')
+            .setName('Paste raw text')
+            .setDesc('On (default): bypass inserts the clipboard\'s plain text exactly as copied — no Markdown conversion at all, so spacing and indentation survive byte-for-byte (ASCII tables, aligned output, indented code). Off: bypass instead keeps Markdown structure such as lists, headings, tables and links, while still skipping every formatting rule above. Note that raw text has no code fences, and some sites generate list bullets in CSS so raw text can lose them.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.bypassRawText)
                 .onChange(async (value) => {
