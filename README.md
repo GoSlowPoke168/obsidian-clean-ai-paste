@@ -57,6 +57,8 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 
 ### Code Block Intelligence (Always Active)
 
+- **Pasted markup becomes a code block** — XML or HTML source is fenced (` ```xml `) with its indentation intact, instead of being pasted as raw tags that Obsidian's renderer would swallow.
+- **Single table cells are not tables** — Copying one cell of a table inserts just its contents, rather than a one-cell grid.
 - **Detached Language Labels** — Detects floating language names (e.g., a bare `python` line above an unlabeled fence) and binds them into the opening backticks (` ```python `).
 - **Duplicate Label Removal** — Detects and removes the redundant language label that Claude generates when copying manually (e.g., bash floating above ```bash).
 
@@ -69,6 +71,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 
 - **Debug/Preview Mode** — When enabled, pasting (either `Ctrl+V` or `Ctrl+Shift+V`) opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. Each panel has a **Copy** button, and you can choose which version to insert — useful for understanding exactly why a paste looks the way it does, and for filing a bug report.
 - **Paste with Debug/Preview** _(command)_ — Opens that same popup for a single paste without turning Debug/Preview Mode on. It ships without a hotkey so it can't clash with your existing bindings — assign one under **Settings → Hotkeys**, or run it from the command palette.
+- **Paste raw text** _(command)_ — Inserts the clipboard's plain text exactly as copied, ignoring every setting. The escape hatch for when a paste comes out wrong in a way the other two don't cover. Also ships without a hotkey.
 - **Reset settings to default** — A button at the bottom of the settings tab to instantly restore all toggles to their original state.
 
 ### Baseline Behavior (Always Active)

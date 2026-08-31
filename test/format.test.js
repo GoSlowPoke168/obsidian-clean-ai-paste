@@ -343,9 +343,69 @@ check('orphaned thead/tbody gets a <table> wrapper',
 check('wrapping does not duplicate the table content',
     (wrapped.match(/Structure/g) || []).length, 1);
 
+// Multi-cell, since a single cell is deliberately unwrapped by the rule below.
 check('html that already has a <table> is left alone',
-    H.preprocessHtml('<table><tbody><tr><td>a</td></tr></tbody></table>', 'a'),
-    '<table><tbody><tr><td>a</td></tr></tbody></table>');
+    H.preprocessHtml('<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>', 'a\tb'),
+    '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
+
+// Pasted markup renders as HTML in Obsidian and vanishes, so it is fenced instead. Built
+// from plainText, so indentation survives the HTML round-trip.
+const asMarkup = (plain) => H.preprocessHtml('<html><body><p>x</p></body></html>', plain);
+const xmlDoc = '<menu>\n  <selection>\n    <name>Greek salad</name>\n  </selection>\n</menu>';
+
+check('xml is wrapped in a labelled pre/code',
+    /^<pre><code class="language-xml">/.test(asMarkup(xmlDoc)), true);
+
+check('xml indentation is preserved',
+    asMarkup(xmlDoc).includes('    &lt;name&gt;'), true);
+
+check('an xml declaration is recognised',
+    /language-xml/.test(asMarkup('<?xml version="1.0"?>\n<a>\n  <b/>\n</a>')), true);
+
+check('an html document gets the html label',
+    /language-html/.test(asMarkup('<!DOCTYPE html>\n<html>\n<body>x</body>\n</html>')), true);
+
+check('a one-line element still counts as markup',
+    /^<pre>/.test(asMarkup('<div>hi</div>')), true);
+
+// Prose that merely mentions tags must not be fenced.
+check('prose mentioning a tag is not fenced',
+    /^<pre>/.test(asMarkup('Use the <div> element for layout.')), false);
+
+check('inline markup inside a sentence is not fenced',
+    /^<pre>/.test(asMarkup('See <b>bold</b> in the docs and more text')), false);
+
+check('comparison operators are not markup',
+    /^<pre>/.test(asMarkup('a < b and c > d')), false);
+
+check('ordinary prose is not fenced',
+    /^<pre>/.test(asMarkup('Hello world')), false);
+
+// Copying one cell yields a 1x1 grid, which is never useful. Keep just the contents.
+const oneCell = (inner) =>
+    H.preprocessHtml('<html><body><!--StartFragment-->' + inner + '<!--EndFragment--></body></html>', 'a\nb');
+
+check('a single cell in a full table is unwrapped',
+    /<t[dh]|<table/i.test(oneCell('<table><tr><td>hello</td></tr></table>')), false);
+
+check('a single cell in an orphaned row is unwrapped',
+    /<t[dh]|<table/i.test(oneCell('<tr><td>hello</td></tr>')), false);
+
+check('a bare single cell is unwrapped',
+    /<t[dh]|<table/i.test(oneCell('<td>hello</td>')), false);
+
+check('unwrapping a single cell keeps its contents',
+    oneCell('<table><tr><td>hello</td></tr></table>').includes('hello'), true);
+
+// Two or more cells is a real table and must survive intact.
+check('a two-cell table is not unwrapped',
+    /<table/i.test(oneCell('<table><tr><td>a</td><td>b</td></tr></table>')), true);
+
+check('a multi-row table is not unwrapped',
+    /<table/i.test(oneCell('<table><tr><td>a</td></tr><tr><td>b</td></tr></table>')), true);
+
+check('a single header cell is unwrapped too',
+    /<t[dh]|<table/i.test(oneCell('<table><tr><th>hello</th></tr></table>')), false);
 
 check('html with no table tags is left alone',
     H.preprocessHtml('<p>Just a paragraph</p>', 'Just a paragraph'),

@@ -321,8 +321,21 @@ const KNOWN_CODE_LANGUAGES = new Set([
     'plaintext', 'text', 'txt', 'output', 'log'
 ]);
 
+// A whole document or fragment of markup — opens with a tag or declaration and closes with
+// a closing tag. Deliberately strict: prose that merely mentions <div> does not match.
+const MARKUP_SOURCE = /^\s*<(?:\?xml|!DOCTYPE|[A-Za-z][\w:.-]*)[\s\S]*<\/[A-Za-z][\w:.-]*>\s*$/;
+
 // Pre-process clipboard HTML to fix code blocks and line breaks before htmlToMarkdown
 function preprocessHtml(html, plainText = '') {
+    // Pasted markup is swallowed by Obsidian's renderer, so fence it. Built from plainText
+    // rather than the HTML so indentation survives.
+    if (MARKUP_SOURCE.test(plainText)) {
+        const lang = /^\s*<(?:!DOCTYPE\s+html|html)\b/i.test(plainText) ? 'html' : 'xml';
+        const escaped = plainText.trim()
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return '<pre><code class="language-' + lang + '">' + escaped + '</code></pre>';
+    }
+
     // Normalize Gemini code blocks, turning Gemini's code block from <code-block>
     // to a <pre><code> (the same clean shape as ChatGPT/Claude) so htmlToMarkdown produces a proper fenced block.
     html = html.replace(/<code-block\b[^>]*>([\s\S]*?)<\/code-block>/gi, (match, inner) => {
@@ -342,6 +355,14 @@ function preprocessHtml(html, plainText = '') {
     html = html.replace(/<(pre|code)\b[^>]*>(.*?)<\/\1>/gis, (match, tag, content) => {
         return `<${tag}>` + content.replace(/<br\s*\/?>/gi, '\n') + `</${tag}>`;
     });
+
+    // One cell is a fragment of a table, not a table — keep just its contents, or the
+    // paste becomes a useless 1x1 grid.
+    if ((html.match(/<t[dh]\b/gi) || []).length === 1) {
+        html = html
+            .replace(/<\/?(?:table|thead|tbody|tfoot|tr|colgroup|col|caption)\b[^>]*>/gi, '')
+            .replace(/<\/?t[dh]\b[^>]*>/gi, '');
+    }
 
     // Claude copies tables without <table>; parsers drop orphaned table tags.
     if (/<(?:thead|tbody|tfoot|tr)\b/i.test(html) && !/<table\b/i.test(html)) {
@@ -567,6 +588,26 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     new Notice("Clean AI Paste: clipboard has no text to paste.");
                 } catch (e) {
                     console.error("Clean AI Paste: debug paste clipboard read failed", e);
+                    new Notice("Clean AI Paste: could not read the clipboard.");
+                }
+            }
+        });
+
+        // Escape hatch for when a paste comes out wrong in an unanticipated way.
+        this.addCommand({
+            id: 'paste-raw-text',
+            name: 'Paste raw text',
+            editorCallback: async (editor) => {
+                try {
+                    const items = await navigator.clipboard.read();
+                    for (const item of items) {
+                        if (!item.types.includes('text/plain')) continue;
+                        editor.replaceSelection(await (await item.getType('text/plain')).text());
+                        return;
+                    }
+                    new Notice("Clean AI Paste: clipboard has no plain text to paste.");
+                } catch (e) {
+                    console.error("Clean AI Paste: raw paste clipboard read failed", e);
                     new Notice("Clean AI Paste: could not read the clipboard.");
                 }
             }
