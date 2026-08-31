@@ -905,6 +905,17 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 // Settings UI
 // ─────────────────────────────────────────────────────────────────────────────
 
+// app.setting is not part of the public API, so fall back to instructions if it changes.
+function openHotkeySettings(app) {
+    const setting = app.setting;
+    const tab = setting && setting.openTabById && setting.openTabById('hotkeys');
+    if (tab && tab.setQuery) {
+        tab.setQuery('Clean AI Paste');
+    } else {
+        new Notice('Open Settings → Hotkeys and search for "Clean AI Paste".');
+    }
+}
+
 class CleanAIPasteSettingTab extends PluginSettingTab {
     constructor(app, plugin) {
         super(app, plugin);
@@ -1110,6 +1121,13 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName('↳ Assign a hotkey')
+            .setDesc('The "Paste raw text" command applies this bypass instantly for a single paste, without changing the setting above. It ships without a hotkey so it will not clash with your existing bindings.')
+            .addButton(button => button
+                .setButtonText('Assign a hotkey')
+                .onClick(() => openHotkeySettings(this.app)));
+
         new Setting(containerEl).setName('AI tracking & notifications').setHeading();
 
         new Setting(containerEl)
@@ -1176,16 +1194,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
             .setDesc('The "Paste with Debug/Preview" command opens that same popup for a single paste, without leaving Debug/Preview Mode on.')
             .addButton(button => button
                 .setButtonText('Assign a hotkey')
-                .onClick(() => {
-                    // app.setting is not part of the public API, so fall back to instructions.
-                    const setting = this.app.setting;
-                    const tab = setting && setting.openTabById && setting.openTabById('hotkeys');
-                    if (tab && tab.setQuery) {
-                        tab.setQuery('Clean AI Paste');
-                    } else {
-                        new Notice('Open Settings → Hotkeys and search for "Clean AI Paste".');
-                    }
-                }));
+                .onClick(() => openHotkeySettings(this.app)));
 
         new Setting(containerEl)
             .setName('Report a bug or request a feature')

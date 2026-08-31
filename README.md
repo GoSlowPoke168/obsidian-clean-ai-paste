@@ -117,6 +117,7 @@ Bypass paste keeps the **structure** of what you copied — lists, numbers, head
 It falls back to raw plain text when the clipboard has no HTML, when the content was copied from inside Obsidian, and when your cursor is inside a fenced code block.
 
 - **Paste raw text instead** _(off by default)_ — Inserts the clipboard's raw plain text exactly as copied. Many sites generate list numbers and bullets in CSS, so raw text can lose them.
+  A **↳ Assign a hotkey** button underneath jumps straight to Settings → Hotkeys, so you can bind the "Paste raw text" command instead of toggling this setting on and off.
 
 ---
 
