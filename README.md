@@ -76,7 +76,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 
 - **Debug/Preview Mode** — When enabled, pasting (either `Ctrl+V` or `Ctrl+Shift+V`) opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. Each panel has a **Copy** button, and you can choose which version to insert — useful for understanding exactly why a paste looks the way it does, and for filing a bug report.
 - **Paste with Debug/Preview** _(command)_ — Opens that same popup for a single paste without turning Debug/Preview Mode on. It ships without a hotkey so it can't clash with your existing bindings — assign one under **Settings → Hotkeys**, or run it from the command palette.
-- **Paste raw text** _(command)_ — Inserts the clipboard's plain text exactly as copied, ignoring every setting. The escape hatch for when a paste comes out wrong in a way the other two don't cover. Also ships without a hotkey.
+- **Paste raw text** _(command)_ — Inserts the clipboard's plain text exactly as copied, ignoring every setting. Since `Ctrl+Shift+V` already does this by default, it is mainly useful if you have turned **Legacy paste** on and want a one-off raw paste without switching it back. Ships without a hotkey.
 - **Report a bug or request a feature** — Opens a GitHub issue form directly from the settings tab. If you are reporting a paste that came out wrong, turn on Debug/Preview Mode first and include the three panels — that is what makes a report fixable.
 - **Reset settings to default** — A button at the bottom of the settings tab to instantly restore all toggles to their original state.
 
