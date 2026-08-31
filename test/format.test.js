@@ -33,7 +33,8 @@ function loadHelpers() {
         'stripTrailingWhitespaces', 'stripTrackingParams', 'convertMathDelimiters',
         'expandSingleLineFences', 'inlineSingleLineCodeblocks',
         'reconstructCodeFencesFromLabels', 'stripCodeblockIndentation',
-        'isInsideFencedCode', 'preprocessHtml', 'normalizeLanguageLabel'
+        'isInsideFencedCode', 'preprocessHtml', 'normalizeLanguageLabel',
+        'resolveRawText', 'migrateSettings'
     ];
     return new Function(src + '\nreturn { ' + exported.join(', ') + ' };')();
 }
@@ -567,6 +568,138 @@ check('an unindented fence is unchanged',
 check('relative indentation inside the block survives',
     H.stripCodeblockIndentation(lines('  ```', '  def f():', '      return 1', '  ```')),
     lines('```', 'def f():', '    return 1', '```'));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// resolveRawText — a clipboard can advertise text/html and supply markup that
+// converts to nothing; the usable text/plain must win rather than be discarded.
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('empty conversion falls back to plain text',
+    H.resolveRawText('', 'Hello world'), 'Hello world');
+
+check('whitespace-only conversion falls back to plain text',
+    H.resolveRawText('   \n  ', 'Hello world'), 'Hello world');
+
+check('real conversion wins over plain text',
+    H.resolveRawText('# Heading', 'Heading'), '# Heading');
+
+// An emoji-only paste with stripEmojis on is legitimately empty; the fallback must not
+// resurrect it. Guarded by only firing when plainText itself has content.
+check('empty conversion with empty plain text stays empty',
+    H.resolveRawText('', '   '), '');
+
+check('conversion that is only whitespace but plain text is too stays as converted',
+    H.resolveRawText('\n\n', ''), '\n\n');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stripEmojis — technical symbols are opt-in (U+2300-23FF is keyboard keys)
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('keyboard symbols survive by default',
+    H.stripEmojis('Press ⌘C to copy', '', false), 'Press ⌘C to copy');
+
+check('keyboard symbols are stripped when opted in',
+    H.stripEmojis('Press ⌘C to copy', '', true), 'Press C to copy');
+
+check('return symbol survives by default',
+    H.stripEmojis('Hit ⏎ to submit', '', false), 'Hit ⏎ to submit');
+
+check('true emoji strip regardless of the technical toggle',
+    H.stripEmojis('Hello \u{1F600} world', '', false), 'Hello world');
+
+check('dingbats still strip by default',
+    H.stripEmojis('Done ✓ here', '', false), 'Done here');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stripEmojis allowlist — filtered per grapheme, no placeholder to collide with
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('allowlisted emoji survives a run it shares with a stripped one',
+    H.stripEmojis('a ✅\u{1F600} b', '✅', false), 'a ✅ b');
+
+check('order within the run does not matter',
+    H.stripEmojis('a \u{1F600}✅ b', '✅', false), 'a ✅ b');
+
+check('allowlisted emoji survives at end of line',
+    H.stripEmojis('status ✅\u{1F389}', '✅', false), 'status ✅');
+
+check('separate runs are handled independently',
+    H.stripEmojis('a ✅ b \u{1F600} c', '✅', false), 'a ✅ b c');
+
+// A ZWJ sequence is one grapheme, so it is judged whole rather than torn apart.
+check('zwj family emoji is stripped as a single unit',
+    H.stripEmojis('family \u{1F468}‍\u{1F469}‍\u{1F467} here', '', false), 'family here');
+
+check('zwj family emoji can be allowlisted whole',
+    H.stripEmojis('family \u{1F468}‍\u{1F469}‍\u{1F467} here', '\u{1F468}‍\u{1F469}‍\u{1F467}', false),
+    'family \u{1F468}‍\u{1F469}‍\u{1F467} here');
+
+// The old implementation swapped allowlisted emoji for a \x00-delimited placeholder and
+// swapped anything matching it back, so literal NUL text became an emoji.
+check('literal NUL text is not turned into an allowlisted emoji',
+    H.stripEmojis('a 0 b ✅', '✅', false), 'a 0 b ✅');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// migrateSettings — runs once per install at upgrade and fails silently if wrong
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DEFAULTS = {
+    condenseMode: 'standard',
+    headingRemoveBlankBefore: true,
+    headingRemoveBlankAfter: true,
+    stripEmojis: true,
+    stripTechnicalSymbols: false,
+    bypassRawText: false,
+};
+const migrate = (saved) => H.migrateSettings(saved, DEFAULTS);
+
+check('a brand new install gets the defaults',
+    JSON.stringify(migrate(null)), JSON.stringify(DEFAULTS));
+
+check('migration 1: condenseBlankLines=false becomes off',
+    migrate({ condenseBlankLines: false }).condenseMode, 'off');
+
+check('migration 1: tightCondense becomes tight',
+    migrate({ condenseBlankLines: true, tightCondense: true }).condenseMode, 'tight');
+
+check('migration 1: plain condenseBlankLines becomes standard',
+    migrate({ condenseBlankLines: true }).condenseMode, 'standard');
+
+check('migration 1 defers to an explicit condenseMode',
+    migrate({ condenseBlankLines: false, condenseMode: 'tight' }).condenseMode, 'tight');
+
+check('migration 2: standard+headings becomes standard',
+    migrate({ condenseMode: 'standard+headings' }).condenseMode, 'standard');
+
+check('migration 2 enables the heading sub-option',
+    migrate({ condenseMode: 'standard+headings' }).headingRemoveBlankAfter, true);
+
+check('migration 3: ensureHeadingSpacing enables the heading sub-option',
+    migrate({ condenseMode: 'standard', ensureHeadingSpacing: true }).headingRemoveBlankAfter, true);
+
+// headingBlankBefore ADDED a blank line; headingRemoveBlankBefore REMOVES one. Opposite
+// meanings, so the old value must not carry over as a boolean.
+check('migration 4: the old heading key is dropped, not carried over',
+    'headingBlankBefore' in migrate({ headingBlankBefore: true }), false);
+
+check('migration 4: everyone lands on the new default',
+    migrate({ headingBlankBefore: false }).headingRemoveBlankBefore, true);
+
+// cleanupOnBypass:false meant "give me raw text on bypass" — that intent must survive.
+check('migration 5: a user who chose raw bypass keeps it',
+    migrate({ cleanupOnBypass: false }).bypassRawText, true);
+
+check('migration 5: the 1.2.0 default maps to structure-preserving bypass',
+    migrate({ cleanupOnBypass: true }).bypassRawText, false);
+
+check('migration 5 defers to an explicit bypassRawText',
+    migrate({ cleanupOnBypass: false, bypassRawText: false }).bypassRawText, false);
+
+check('migration 5: the old bypass key is dropped',
+    'cleanupOnBypass' in migrate({ cleanupOnBypass: true }), false);
+
+check('a user\'s own settings are preserved through migration',
+    migrate({ condenseMode: 'tight', stripEmojis: false }).stripEmojis, false);
 
 // ─────────────────────────────────────────────────────────────────────────────
 

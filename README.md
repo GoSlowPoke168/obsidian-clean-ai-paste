@@ -12,15 +12,15 @@ When you copy text from an AI web interface, the result in Obsidian is often clu
 
 ## Quick Look: Before & After
 
-| Feature          | Original AI Paste                               | With Clean AI Paste                       |
-| :--------------- | :---------------------------------------------- | :---------------------------------------- |
-| **Headers**      | `### **Introduction**`                          | `### Introduction`                        |
-| **Blank Lines**  | Several blank lines between paragraphs          | Exactly one                               |
-| **Headings**     | `Text`<br><br>`## Heading`<br><br>`Body`        | `Text`<br>`## Heading`<br>`Body`          |
-| **ASCII Tables** | `+---+  +---+` *(alignment collapsed)*          | `+---+     +---+` *(spacing preserved)*   |
-| **Code Blocks**  | `python`<br>` ``` `<br>`print("hi")`<br>` ``` ` | ` ```python `<br>`print("hi")`<br>` ``` ` |
-| **Math (LaTeX)** | `\( x = y \)`                                   | `$ x = y $`                               |
-| **Tracking URLs**| `https://example.com/?utm_source=chatgpt.com`    | `https://example.com/`                     |
+| Feature           | Original AI Paste                               | With Clean AI Paste                       |
+| :---------------- | :---------------------------------------------- | :---------------------------------------- |
+| **Headers**       | `### **Introduction**`                          | `### Introduction`                        |
+| **Blank Lines**   | `Paragraph.`<br><br>`Next paragraph.`           | `Paragraph.`<br>`Next paragraph.`         |
+| **Headings**      | `Text`<br><br>`## Heading`<br><br>`Body`        | `Text`<br>`## Heading`<br>`Body`          |
+| **ASCII Tables**  | `+---+  +---+` _(alignment collapsed)_          | `+---+     +---+` _(spacing preserved)_   |
+| **Code Blocks**   | `python`<br>` ``` `<br>`print("hi")`<br>` ``` ` | ` ```python `<br>`print("hi")`<br>` ``` ` |
+| **Math (LaTeX)**  | `\( x = y \)`                                   | `$ x = y $`                               |
+| **Tracking URLs** | `https://example.com/?utm_source=chatgpt.com`   | `https://example.com/`                    |
 
 ---
 
@@ -30,7 +30,7 @@ Clean AI Paste runs automatically. Just press `Ctrl+V` or `Cmd+V` to paste from 
 
 ### Spacing Normalization
 
-- **Standard** — Natural line and paragraph spacing with comfortable room to breathe. 
+- **Standard** — Natural line and paragraph spacing with comfortable room to breathe.
 - **Tight** — Removes all blank lines everywhere.
 - **Off** — Leaves all spacing completely untouched.
 
@@ -42,7 +42,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 ### Formatting & Cleanup
 
 - **Strip Trailing Whitespaces** — Removes invisible trailing spaces at the end of every line.
-- **Strip Emojis** — Removes all emoji characters from pasted text. An optional allowlist lets you preserve specific ones.
+- **Strip Emojis** — Removes all emoji characters from pasted text. An optional allowlist lets you preserve specific ones. Keyboard and technical symbols (⌘ ⌥ ⏎ ⌫) are kept by default, since removing them rewrites instructions — a separate sub-option strips those too if you want.
 - **Strip Link Tracking Parameters** — Removes tracking parameters (`?utm_source=`, `?gclid=`, `?fbclid=`, etc.) from pasted URLs.
 
 ### Markdown Elements
@@ -53,12 +53,12 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 - **Convert Math Delimiters** — Converts AI-style LaTeX (`\(`, `\)`, `\[`, `\]`) to Obsidian's native `$` and `$$`. Leaves content inside inline code untouched.
 - **Format Horizontal Lines** — Ensures a blank line both before and after `---` separators so they render correctly. (A heading placed directly after a rule is always kept tight against it — see below.)
 - **Padding Before/After Code Blocks** — Independently control whether a blank line is inserted before and after every fenced code block.
-- **Inline Single-Line Code Blocks** — Converts a fenced code block containing only one line (e.g. a copied one-line command) into inline `` `code` ``. Blocks with a language label (like ` ```python `) and multi-line blocks are always kept as full blocks. *(Off by default.)*
+- **Inline Single-Line Code Blocks** — Converts a fenced code block containing only one line (e.g. a copied one-line command) into inline `` `code` ``. Blocks with a language label (like ` ```python `) and multi-line blocks are always kept as full blocks. _(Off by default.)_
 
 ### Code Block Intelligence (Always Active)
 
 - **Detached Language Labels** — Detects floating language names (e.g., a bare `python` line above an unlabeled fence) and binds them into the opening backticks (` ```python `).
-- **Duplicate Label Removal** — Detects and removes the redundant language label that Claude generates when copying manually (e.g., bash floating above  ```bash).
+- **Duplicate Label Removal** — Detects and removes the redundant language label that Claude generates when copying manually (e.g., bash floating above ```bash).
 
 ### AI Tracking & Notifications
 
@@ -68,7 +68,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 ### Troubleshooting
 
 - **Debug/Preview Mode** — When enabled, pasting (either `Ctrl+V` or `Ctrl+Shift+V`) opens a wide popup showing three panels: the raw `text/plain`, the raw `text/html`, and the plugin's formatted output. Each panel has a **Copy** button, and you can choose which version to insert — useful for understanding exactly why a paste looks the way it does, and for filing a bug report.
-- **Paste with Debug/Preview** *(command)* — Opens that same popup for a single paste without turning Debug/Preview Mode on. It ships without a hotkey so it can't clash with your existing bindings — assign one under **Settings → Hotkeys**, or run it from the command palette.
+- **Paste with Debug/Preview** _(command)_ — Opens that same popup for a single paste without turning Debug/Preview Mode on. It ships without a hotkey so it can't clash with your existing bindings — assign one under **Settings → Hotkeys**, or run it from the command palette.
 - **Reset settings to default** — A button at the bottom of the settings tab to instantly restore all toggles to their original state.
 
 ### Baseline Behavior (Always Active)
@@ -86,7 +86,7 @@ Everything in the [Features](#features) section is applied on top of this baseli
 
 ## Installation
 
-### From the Community Plugin Store *(Recommended)*
+### From the Community Plugin Store _(Recommended)_
 
 1. Open Obsidian → **Settings → Community plugins**.
 2. Disable **Restricted mode** if prompted.
@@ -112,7 +112,7 @@ Bypass paste keeps the **structure** of what you copied — lists, numbers, head
 
 It falls back to raw plain text when the clipboard has no HTML, when the content was copied from inside Obsidian, and when your cursor is inside a fenced code block.
 
-- **Paste raw text instead** *(off by default)* — Inserts the clipboard's raw plain text exactly as copied. Many sites generate list numbers and bullets in CSS, so raw text can lose them.
+- **Paste raw text instead** _(off by default)_ — Inserts the clipboard's raw plain text exactly as copied. Many sites generate list numbers and bullets in CSS, so raw text can lose them.
 
 ---
 
@@ -131,7 +131,7 @@ It falls back to raw plain text when the clipboard has no HTML, when the content
 
 ## Feedback & Bug Reports
 
-If you encounter a bug, have a feature request, or want to suggest an improvement, please open an issue on the [GitHub repository](https://github.com/GoSlowPoke168/obsidian-clean-ai-paste/issues). 
+If you encounter a bug, have a feature request, or want to suggest an improvement, please open an issue on the [GitHub repository](https://github.com/GoSlowPoke168/obsidian-clean-ai-paste/issues).
 
 Issue templates are provided to make reporting bugs and requesting features as quick and easy as possible!
 
@@ -144,6 +144,7 @@ Issue templates are provided to make reporting bugs and requesting features as q
 ---
 
 ## Support the Project
+
 If you find this plugin useful, please leave a star on GitHub or consider supporting its development!
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/T5T725W4FX)

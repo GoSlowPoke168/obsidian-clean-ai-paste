@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
     stripTrailingWhitespaces: true,
     stripEmojis: true,
     emojiAllowlist: '',
+    stripTechnicalSymbols: false,
     cleanLinkTracking: true,
     // Markdown Elements
     unboldHeaders: true,
@@ -254,10 +255,16 @@ function stripTrailingWhitespaces(text) {
     return text.replace(/[ \t]+$/gm, '');
 }
 
-function stripEmojis(text, allowlist) {
+// U+2300-23FF is Miscellaneous Technical (\u2318 \u2325 \u23CE \u232B) \u2014 keyboard keys, not emoji, so it is
+// only swept when the caller opts in.
+const EMOJI_RANGES = '\\u{1F000}-\\u{1FFFF}\\u{2600}-\\u{27BF}\\u{2B00}-\\u{2BFF}\\uFE0F\\u200D';
+const TECHNICAL_RANGE = '\\u{2300}-\\u{23FF}';
+
+function stripEmojis(text, allowlist, stripTechnical) {
     // Matches a run of emoji chars together with any spaces/tabs on either side, so we
     // can collapse to a single space only when the emoji sat between two words.
-    const emojiRun = /([ \t]*)[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]+([ \t]*)/gu;
+    const chars = EMOJI_RANGES + (stripTechnical ? TECHNICAL_RANGE : '');
+    const emojiRun = new RegExp('([ \\t]*)[' + chars + ']+([ \\t]*)', 'gu');
     // With whitespace on one side only, keep a space unless the other side is punctuation.
     const isBoundary = (ch) => !ch || ch === '\n' || ch === '\r' || /\p{P}/u.test(ch);
     const collapse = (m, before, after, offset, string) => {
@@ -273,21 +280,26 @@ function stripEmojis(text, allowlist) {
         return '';
     };
 
-    if (allowlist) {
-        const allowed = [...new Set(allowlist.split(/[\s,]+/).filter(Boolean))];
-        if (allowed.length > 0) {
-            const placeholders = allowed.map((emoji, i) => ({ token: `\x00${i}\x00`, emoji }));
-            for (const { token, emoji } of placeholders) {
-                text = text.split(emoji).join(token);
-            }
-            text = text.replace(emojiRun, collapse);
-            for (const { token, emoji } of placeholders) {
-                text = text.split(token).join(emoji);
-            }
-            return text;
-        }
-    }
-    return text.replace(emojiRun, collapse);
+    const allowed = new Set(allowlist ? allowlist.split(/[\s,]+/).filter(Boolean) : []);
+    if (allowed.size === 0) return text.replace(emojiRun, collapse);
+
+    // Filter per grapheme so an allowlisted emoji survives a run it shares with others,
+    // and so ZWJ sequences (\uD83D\uDC68\u200D\uD83D\uDC69\u200D\uD83D\uDC67) are judged whole rather than torn apart.
+    const segmenter = typeof Intl.Segmenter === 'function'
+        ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+        : null;
+    const keptOf = (run) => {
+        const parts = segmenter
+            ? [...segmenter.segment(run)].map((s) => s.segment)
+            : Array.from(run);
+        return parts.filter((g) => allowed.has(g)).join('');
+    };
+
+    return text.replace(emojiRun, (m, before, after, offset, string) => {
+        const kept = keptOf(m.slice(before.length, m.length - after.length));
+        if (!kept) return collapse(m, before, after, offset, string);
+        return before + kept + after;
+    });
 }
 
 // Languages recognised as code block labels when found floating above plain-text code.
@@ -460,6 +472,12 @@ function isInsideFencedCode(lines, lineIndex) {
     return open !== null;
 }
 
+// A clipboard can advertise text/html and still supply markup that converts to nothing.
+// Judge by what came out, not by what was offered.
+function resolveRawText(converted, plainText) {
+    return (!converted.trim() && plainText.trim()) ? plainText : converted;
+}
+
 function stripCodeblockIndentation(codeBlock) {
     const match = codeBlock.match(/^([ \t]*)```/);
     if (match && match[1].length > 0) {
@@ -468,6 +486,42 @@ function stripCodeblockIndentation(codeBlock) {
         codeBlock = codeBlock.replace(indentRegex, '');
     }
     return codeBlock;
+}
+
+// Resolves a saved data.json against the current schema. Pure, so the branches below are
+// testable — they run once per install at upgrade and fail silently if wrong.
+function migrateSettings(saved, defaults) {
+    const settings = Object.assign({}, defaults, saved);
+    // Migration 1: Very old boolean condenseBlankLines + tightCondense → condenseMode.
+    if (saved && 'condenseBlankLines' in saved && !('condenseMode' in saved)) {
+        if (!saved.condenseBlankLines) {
+            settings.condenseMode = 'off';
+        } else if (saved.tightCondense) {
+            settings.condenseMode = 'tight';
+        } else {
+            settings.condenseMode = 'standard';
+        }
+    }
+    // Migration 2: condenseMode='standard+headings' (previous unified mode) → 'standard'.
+    if (saved && saved.condenseMode === 'standard+headings') {
+        settings.condenseMode = 'standard';
+        if (!('headingRemoveBlankAfter' in saved)) {
+            settings.headingRemoveBlankAfter = true;
+        }
+    }
+    // Migration 3: old condenseMode='standard' + ensureHeadingSpacing=true → heading sub-option.
+    if (saved && saved.condenseMode === 'standard' && saved.ensureHeadingSpacing === true) {
+        settings.headingRemoveBlankAfter = true;
+    }
+    // Migration 4: headingBlankBefore (add) → headingRemoveBlankBefore (remove).
+    // Opposite meanings, so the old value is dropped and the new default applies.
+    delete settings.headingBlankBefore;
+    // Migration 5: cleanupOnBypass=false meant "paste raw" → bypassRawText.
+    if (saved && saved.cleanupOnBypass === false && !('bypassRawText' in saved)) {
+        settings.bypassRawText = true;
+    }
+    delete settings.cleanupOnBypass;
+    return settings;
 }
 
 module.exports = class CleanAIPastePlugin extends Plugin {
@@ -561,9 +615,10 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                     let result = plainText;
                     if (!rawOnly) {
-                        result = htmlToMarkdown(preprocessHtml(html, plainText));
-                        result = formatTablePadding(result);
-                        result = formatBlockquotePadding(result);
+                        const converted = resolveRawText(htmlToMarkdown(preprocessHtml(html, plainText)), plainText);
+                        result = converted === plainText
+                            ? plainText
+                            : formatBlockquotePadding(formatTablePadding(converted));
                     }
 
                     if (this.settings.debugMode) {
@@ -583,6 +638,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 new Notice("Clean AI Paste: clipboard has no plain text to paste.");
             } catch (e) {
                 console.error("Clean AI Paste: Shift+V clipboard read failed", e);
+                new Notice("Clean AI Paste: could not read the clipboard.");
             }
         });
 
@@ -599,8 +655,6 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 const hasText = clipboardData.types.includes('text/plain');
 
                 if (!hasHtml && !hasText) return;
-
-                if (evt.shiftKey) return;
 
                 const html = hasHtml ? clipboardData.getData('text/html') : '';
 
@@ -659,7 +713,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
     // Shared by the paste handler and the Paste with Debug/Preview command.
     formatClipboard(html, plainText, hasHtml) {
         let rawText = hasHtml
-            ? reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText)))
+            ? resolveRawText(reconstructCodeFencesFromLabels(htmlToMarkdown(preprocessHtml(html, plainText))), plainText)
             : plainText;
 
         // Repair collapsed fences so the splitter below recognizes them.
@@ -741,7 +795,8 @@ module.exports = class CleanAIPastePlugin extends Plugin {
 
                 // Strip emojis
                 if (this.settings.stripEmojis) {
-                    text = stripEmojis(text, this.settings.emojiAllowlist);
+                    text = stripEmojis(text, this.settings.emojiAllowlist,
+                        this.settings.stripTechnicalSymbols);
                 }
 
                 // Clean link tracking parameters
@@ -789,38 +844,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
     }
 
     async loadSettings() {
-        const saved = await this.loadData();
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
-        // Migration 1: Very old boolean condenseBlankLines + tightCondense → condenseMode.
-        if (saved && 'condenseBlankLines' in saved && !('condenseMode' in saved)) {
-            if (!saved.condenseBlankLines) {
-                this.settings.condenseMode = 'off';
-            } else if (saved.tightCondense) {
-                this.settings.condenseMode = 'tight';
-            } else {
-                this.settings.condenseMode = 'standard';
-            }
-        }
-        // Migration 2: condenseMode='standard+headings' (previous unified mode) → 'standard'
-        // Re-enable both heading sub-options to preserve old behavior.
-        if (saved && saved.condenseMode === 'standard+headings') {
-            this.settings.condenseMode = 'standard';
-            if (!('headingRemoveBlankAfter' in saved)) {
-                this.settings.headingRemoveBlankAfter = true;
-            }
-        }
-        // Migration 3: old condenseMode='standard' + ensureHeadingSpacing=true → heading sub-option.
-        if (saved && saved.condenseMode === 'standard' && saved.ensureHeadingSpacing === true) {
-            this.settings.headingRemoveBlankAfter = true;
-        }
-        // Migration 4: headingBlankBefore (add) → headingRemoveBlankBefore (remove).
-        // Opposite meanings, so the old value is dropped and the new default applies.
-        delete this.settings.headingBlankBefore;
-        // Migration 5: cleanupOnBypass=false meant "paste raw" → bypassRawText.
-        if (saved && saved.cleanupOnBypass === false && !('bypassRawText' in saved)) {
-            this.settings.bypassRawText = true;
-        }
-        delete this.settings.cleanupOnBypass;
+        this.settings = migrateSettings(await this.loadData(), DEFAULT_SETTINGS);
     }
 
     async saveSettings() {
@@ -914,6 +938,16 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     .setValue(this.plugin.settings.emojiAllowlist)
                     .onChange(async (value) => {
                         this.plugin.settings.emojiAllowlist = value;
+                        await this.plugin.saveSettings();
+                    }));
+
+            new Setting(containerEl)
+                .setName('↳ Also strip technical symbols')
+                .setDesc('Removes keyboard and technical symbols such as ⌘ ⌥ ⏎ ⌫ as well. Off by default because these usually carry meaning — stripping them turns "Press ⌘C" into "Press C".')
+                .addToggle(toggle => toggle
+                    .setValue(this.plugin.settings.stripTechnicalSymbols)
+                    .onChange(async (value) => {
+                        this.plugin.settings.stripTechnicalSymbols = value;
                         await this.plugin.saveSettings();
                     }));
         }
@@ -1091,7 +1125,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('↳ One-off debug paste')
-            .setDesc('The "Paste with Debug/Preview" command opens that same popup for a single paste, without leaving Debug/Preview Mode on. It ships without a hotkey so it can\'t clash with your existing ones.')
+            .setDesc('The "Paste with Debug/Preview" command opens that same popup for a single paste, without leaving Debug/Preview Mode on.')
             .addButton(button => button
                 .setButtonText('Assign a hotkey')
                 .onClick(() => {
