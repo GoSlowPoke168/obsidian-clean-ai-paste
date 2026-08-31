@@ -926,7 +926,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        new Setting(containerEl).setName('Formatting & cleanup').setHeading();
+        new Setting(containerEl).setName('Spacing & headings').setHeading();
 
         new Setting(containerEl)
             .setName('Spacing normalization')
@@ -966,6 +966,8 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     }));
         }
+
+        new Setting(containerEl).setName('Formatting & cleanup').setHeading();
 
         new Setting(containerEl)
             .setName('Strip trailing whitespaces')
@@ -1079,6 +1081,8 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl).setName('Code blocks').setHeading();
+
         new Setting(containerEl)
             .setName('Padding before code blocks')
             .setDesc('Ensures there is an empty line immediately before every code block so it renders completely unattached from previous text.')
@@ -1113,7 +1117,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Paste raw text instead')
-            .setDesc('By default, bypass paste keeps the structure of the copied content (lists, headings, tables, links) but applies none of the formatting rules above. Turn this on to insert the clipboard\'s raw plain text exactly as copied. Note that many sites generate list numbers and bullets in CSS, so raw text can lose them.')
+            .setDesc('By default, bypass paste keeps the structure of the copied content (lists, headings, tables, links) but applies none of the formatting rules above. Turn this on to insert the clipboard\'s raw plain text (text/raw) exactly as copied. Note that many sites generate list numbers and bullets in CSS, so raw text can lose them.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.bypassRawText)
                 .onChange(async (value) => {
@@ -1198,7 +1202,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Report a bug or request a feature')
-            .setDesc('Opens a GitHub issue form. If reporting a paste that came out wrong, turn on Debug/Preview Mode above first and copy the three panels into the report — that is the fastest way to get it fixed.')
+            .setDesc('Opens a GitHub issue form where you can report bugs or request features. If reporting a paste that came out wrong, turn on Debug/Preview Mode above first and copy the three panels into the report — that is the fastest way to get it fixed.')
             .addButton(button => button
                 .setButtonText('Open an issue')
                 .onClick(() => {
