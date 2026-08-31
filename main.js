@@ -469,17 +469,16 @@ function expandSingleLineFences(text) {
     );
 }
 
-// Turns a single-line fence into inline `code`, tagging a labeled fence as `{lang}code`.
-// Runs after label normalization and padding; bodies with a backtick stay blocks.
+// Turns a single-line unlabeled fence into inline `code`. Runs as a post-pass, after
+// label normalization and padding have settled. Bodies with a backtick stay blocks.
 function inlineSingleLineCodeblocks(text) {
     // The (?:[ \t]*\r?\n)+ tolerates one stray blank line before the closing fence.
     return text.replace(
-        /(^|\n)[ \t]*```([a-zA-Z0-9+#\-_]*)[ \t]*\r?\n([^\n]+?)(?:[ \t]*\r?\n)+[ \t]*```[ \t]*(?=\r?\n|$)/g,
-        (m, lead, lang, body) => {
+        /(^|\n)[ \t]*```[ \t]*\r?\n([^\n]+?)(?:[ \t]*\r?\n)+[ \t]*```[ \t]*(?=\r?\n|$)/g,
+        (m, lead, body) => {
             const trimmed = body.trim();
             if (!trimmed || trimmed.includes('`')) return m;
-            const tag = lang ? '{' + lang + '}' : '';
-            return lead + '`' + tag + trimmed + '`';
+            return lead + '`' + trimmed + '`';
         }
     );
 }
@@ -1102,7 +1101,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Inline single-line code blocks')
-            .setDesc('Converts a fenced code block that contains only one line into inline `code` (e.g. a copied one-line command). A labeled block keeps its language as a tag, e.g. ```python + print("hi") + ``` becomes `{python}print("hi")` (a readable label, not syntax highlighting, since Obsidian does not highlight inline code). Multi-line blocks and bodies containing a backtick are always left as full blocks.')
+            .setDesc('Converts a fenced code block that contains only one line into inline `code` (e.g. a copied one-line command). Code blocks with a language label (like ```python) and multi-line blocks are always left as full blocks.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.inlineSingleLineCodeblocks)
                 .onChange(async (value) => {

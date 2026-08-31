@@ -551,27 +551,14 @@ check('non-heading lines are untouched by downgrade',
 check('a bare single-line fence becomes inline code',
     H.inlineSingleLineCodeblocks('```\nnpm install\n```'), '`npm install`');
 
-check('a labeled single-line fence is inlined with a {lang} tag',
-    H.inlineSingleLineCodeblocks('```python\nprint("hello")\n```'), '`{python}print("hello")`');
+check('a labeled fence is never inlined',
+    H.inlineSingleLineCodeblocks('```bash\nnpm install\n```'), '```bash\nnpm install\n```');
 
-check('a different language label is tagged too',
-    H.inlineSingleLineCodeblocks('```bash\nnpm install\n```'), '`{bash}npm install`');
-
-check('a multi-line labeled fence is never inlined',
-    H.inlineSingleLineCodeblocks('```python\na = 1\nb = 2\n```'), '```python\na = 1\nb = 2\n```');
-
-check('a multi-line unlabeled fence is never inlined',
+check('a multi-line fence is never inlined',
     H.inlineSingleLineCodeblocks('```\na\nb\n```'), '```\na\nb\n```');
 
-check('a body containing a backtick stays a block, labeled or not',
-    H.inlineSingleLineCodeblocks('```js\nconsole.log(`hi`)\n```'), '```js\nconsole.log(`hi`)\n```');
-
-check('a labeled fence with an empty body stays a block',
-    H.inlineSingleLineCodeblocks('```python\n\n```'), '```python\n\n```');
-
-check('two labeled single-line fences in one document both get tagged',
-    H.inlineSingleLineCodeblocks('Text\n\n```python\nprint(1)\n```\n\nMore\n\n```js\nconsole.log(1)\n```'),
-    'Text\n\n`{python}print(1)`\n\nMore\n\n`{js}console.log(1)`');
+check('a body containing a backtick stays a block',
+    H.inlineSingleLineCodeblocks('```\necho `date`\n```'), '```\necho `date`\n```');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // normalizeLanguageLabel — merges a floating label into the fence below it
