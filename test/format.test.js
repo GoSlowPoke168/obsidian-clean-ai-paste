@@ -722,7 +722,7 @@ check('zwj family emoji can be allowlisted whole',
 // The old implementation swapped allowlisted emoji for a \x00-delimited placeholder and
 // swapped anything matching it back, so literal NUL text became an emoji.
 check('literal NUL text is not turned into an allowlisted emoji',
-    H.stripEmojis('a 0 b ✅', '✅', false), 'a 0 b ✅');
+    H.stripEmojis('a\x000\x00b ✅', '✅', false), 'a\x000\x00b ✅');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // migrateSettings — runs once per install at upgrade and fails silently if wrong
