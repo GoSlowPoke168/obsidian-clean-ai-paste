@@ -356,6 +356,13 @@ function preprocessHtml(html, plainText = '') {
         return `<${tag}>` + content.replace(/<br\s*\/?>/gi, '\n') + `</${tag}>`;
     });
 
+    // A block element inside a heading makes the converter break the line, leaving the
+    // `##` stranded on its own and the title as a plain paragraph.
+    html = html.replace(/<(h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi, (m, tag, inner) =>
+        '<' + tag + '>'
+        + inner.replace(/<\/?(?:div|p|section|article|header|footer|figure)\b[^>]*>/gi, ' ')
+        + '</' + tag + '>');
+
     // One cell is a fragment of a table, not a table — keep just its contents, or the
     // paste becomes a useless 1x1 grid.
     if ((html.match(/<t[dh]\b/gi) || []).length === 1) {

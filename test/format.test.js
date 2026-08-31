@@ -348,6 +348,31 @@ check('html that already has a <table> is left alone',
     H.preprocessHtml('<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>', 'a\tb'),
     '<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>');
 
+// Sites wrap heading text in a div for layout. The converter treats that as a block, so
+// the `##` ends up alone on its line and the title becomes a plain paragraph.
+const headingHtml = (inner) =>
+    H.preprocessHtml('<html><body><!--StartFragment-->' + inner + '<!--EndFragment--></body></html>', '');
+
+check('a div inside a heading is unwrapped',
+    /<div/i.test(headingHtml('<h2><div class="title">Table 2.5.1</div></h2>')), false);
+
+check('unwrapping a heading keeps its text',
+    headingHtml('<h2><div class="title">Table 2.5.1</div></h2>').includes('Table 2.5.1'), true);
+
+check('a p inside a heading is unwrapped',
+    /<p[ >]/i.test(headingHtml('<h2><p>Title</p></h2>')), false);
+
+check('every heading level is handled',
+    /<div/i.test(headingHtml('<h3><div>Sub</div></h3>')), false);
+
+// Inline children carry no block break, so they must be left intact.
+check('inline children inside a heading are preserved',
+    headingHtml('<h2><strong>Bold</strong> title</h2>').includes('<strong>'), true);
+
+// Only inside headings — a div elsewhere is a real block and must stay one.
+check('a div outside a heading is untouched',
+    headingHtml('<div>Before</div><h2>Title</h2>').includes('<div>Before</div>'), true);
+
 // Pasted markup renders as HTML in Obsidian and vanishes, so it is fenced instead. Built
 // from plainText, so indentation survives the HTML round-trip.
 const asMarkup = (plain) => H.preprocessHtml('<html><body><p>x</p></body></html>', plain);
