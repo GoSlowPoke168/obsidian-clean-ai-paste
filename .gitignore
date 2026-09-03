@@ -1,4 +1,7 @@
 # Local Obsidian settings
 data.json
 
-test/
+# dev keeps the test suite tracked, unlike main/release: local scratch in
+# test/ is still ignored, but the versioned script is not.
+test/*
+!test/*.js
