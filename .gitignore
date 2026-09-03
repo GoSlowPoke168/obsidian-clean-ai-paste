@@ -1,8 +1,4 @@
 # Local Obsidian settings
 data.json
 
-# Local scratch in test/, but keep the versioned test scripts.
-# (A directory excluded as `test/` cannot be un-ignored by a negation; its
-# contents can, so exclude `test/*` instead.)
-test/*
-!test/*.js
+test/
