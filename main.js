@@ -470,6 +470,12 @@ function expandSingleLineFences(text) {
     );
 }
 
+// Drops the fence delimiters and keeps the code lines. Legacy bypass uses this so it never
+// introduces a fence the source did not have.
+function unwrapCodeFences(text) {
+    return text.replace(/^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n([\s\S]*?)^[ \t]*```[ \t]*(?:\r?\n|$)/gm, '$1');
+}
+
 // Turns a single-line unlabeled fence into inline `code`. Runs as a post-pass, after
 // label normalization and padding have settled. Bodies with a backtick stay blocks.
 function inlineSingleLineCodeblocks(text) {
@@ -666,20 +672,26 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     let result = plainText;
                     if (!rawOnly) {
                         const converted = resolveRawText(htmlToMarkdown(preprocessHtml(html, plainText)), plainText);
-                        result = converted === plainText
-                            ? plainText
-                            : formatBlockquotePadding(formatTablePadding(converted));
+                        if (converted !== plainText) {
+                            let structured = unwrapCodeFences(converted);
+                            structured = condenseBlankLines(structured, this.settings.condenseMode);
+                            structured = formatBlockquotePadding(formatTablePadding(structured));
+                            result = stripTrailingWhitespaces(structured).trim();
+                        }
                     }
 
+                    // Legacy mode converts, so there is something to report; raw does not.
+                    const notify = !rawOnly && this.settings.enableNotifications;
                     if (this.settings.debugMode) {
                         new DebugPreviewModal(this.app, plainText, html, result, (selectedText) => {
                             if (selectedText !== null) {
                                 activeEditor.editor.replaceSelection(selectedText);
+                                if (notify) new Notice("Paste formatted by Clean AI Paste!");
                             }
                         }).open();
                     } else {
-                        // No notice: bypass formats nothing, so there is nothing to report.
                         activeEditor.editor.replaceSelection(result);
+                        if (notify) new Notice("Paste formatted by Clean AI Paste!");
                     }
                     return;
                 }
@@ -1119,7 +1131,7 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName('Legacy paste')
-            .setDesc('Bypass paste normally inserts the clipboard\'s plain text exactly as copied, so spacing and indentation survive byte-for-byte — ASCII tables, aligned output and indented code all paste intact. Turn this on to restore the older behaviour instead, where bypass converts the clipboard HTML to keep Markdown structure such as lists, headings, tables and links (while still skipping every formatting rule above). Useful for sites that generate list bullets in CSS, since those are missing from plain text.')
+            .setDesc('Turn this on to restore the older v1.2.0 behaviour instead, where the bypass paste preserves some structure formatting instead of being fully text/plain.')
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.bypassLegacyStructure)
                 .onChange(async (value) => {
@@ -1265,7 +1277,7 @@ class DebugPreviewModal extends Modal {
 
         contentEl.createEl('h2', { text: 'Clean AI Paste: Debug/Preview' });
 
-        const container = contentEl.createEl('div', { attr: { style: 'display: flex; gap: 10px; margin-bottom: 20px; height: 50vh;' } });
+        const container = contentEl.createEl('div', { attr: { style: 'display: flex; gap: 10px; margin-bottom: 20px; height: 60vh;' } });
 
         const addColumn = (title, value) => {
             const col = container.createEl('div', { attr: { style: 'flex: 1; display: flex; flex-direction: column; min-width: 0;' } });

@@ -31,7 +31,7 @@ function loadHelpers() {
         'formatHorizontalRules', 'tightenRuleHeadingGap', 'applyHeadingSpacing',
         'unboldHeaders', 'unboldLinks', 'downgradeHeaders', 'stripEmojis',
         'stripTrailingWhitespaces', 'stripTrackingParams', 'convertMathDelimiters',
-        'expandSingleLineFences', 'inlineSingleLineCodeblocks',
+        'expandSingleLineFences', 'inlineSingleLineCodeblocks', 'unwrapCodeFences',
         'reconstructCodeFencesFromLabels', 'stripCodeblockIndentation',
         'isInsideFencedCode', 'preprocessHtml', 'normalizeLanguageLabel',
         'resolveRawText', 'migrateSettings'
@@ -560,6 +560,28 @@ check('a multi-line fence is never inlined',
 
 check('a body containing a backtick stays a block',
     H.inlineSingleLineCodeblocks('```\necho `date`\n```'), '```\necho `date`\n```');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// unwrapCodeFences (Legacy bypass only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+check('an unlabeled fence loses its delimiters',
+    H.unwrapCodeFences('```\nnpm install\n```'), 'npm install\n');
+
+check('a labeled fence loses its delimiters',
+    H.unwrapCodeFences('```python\ndef f():\n    return 1\n```'), 'def f():\n    return 1\n');
+
+check('indentation inside the fence survives unwrapping',
+    H.unwrapCodeFences('```\n|  a  |\n|  b  |\n```'), '|  a  |\n|  b  |\n');
+
+check('every fence in the text is unwrapped',
+    H.unwrapCodeFences('```\na\n```\ntext\n```\nb\n```'), 'a\ntext\nb\n');
+
+check('prose without a fence is untouched',
+    H.unwrapCodeFences('a `inline` b'), 'a `inline` b');
+
+check('an unclosed fence is left alone',
+    H.unwrapCodeFences('```\nno closing marker'), '```\nno closing marker');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // normalizeLanguageLabel — merges a floating label into the fence below it

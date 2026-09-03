@@ -121,7 +121,7 @@ Bypass paste inserts the clipboard's **raw plain text**, exactly as copied. No M
 
 Because it skips conversion entirely, raw text has no code fences, and content from sites that generate list bullets in CSS will lose those bullets — use a normal `Ctrl+V` when you want that structure.
 
-- **Legacy paste** _(off by default)_ — Turn this **on** to restore the older behaviour, where bypass converts the clipboard HTML to keep Markdown structure (lists, headings, tables, links) while still skipping every formatting rule above. Useful for sites that generate list bullets in CSS, since those are missing from plain text.
+- **Legacy paste** _(off by default)_ — Turn this **on** to restore the older behaviour, where bypass converts the clipboard HTML to keep Markdown structure (lists, headings, tables, links) while still skipping every formatting rule above. This is the 1.2.0 behaviour restored, minus its bugs, for anyone who preferred it: blank lines follow **Spacing normalization**, and no code fence is ever added.
 
 ---
 
