@@ -52,6 +52,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 - **Header Downgrade Level** — Shifts pasted headers down by 1–3 levels (e.g. `#` → `##`). Capped at `######`.
 - **Convert Math Delimiters** — Converts AI-style LaTeX (`\(`, `\)`, `\[`, `\]`) to Obsidian's native `$` and `$$`. Leaves content inside inline code untouched.
 - **Format Horizontal Lines** — Ensures a blank line both before and after `---` separators so they render correctly. (A heading placed directly after a rule is always kept tight against it — see below.)
+- **Remove Horizontal Lines** _(off by default)_ — Strips the `---` separators AI chats put between sections, for themes that already draw a line under headings.
 
 ### Code Blocks
 
@@ -128,6 +129,7 @@ Because it skips conversion entirely, raw text has no code fences, and content f
 ## Known Limitations
 
 - **Code blocks missing HTML structure:** Sometimes when copying code, it will just copy as plain text and `<br>` tags rather than proper `<code>` blocks on the clipboard. When this happens, it's impossible for the plugin's parser to detect it as code, and it will be pasted as plain text.
+- **ChatGPT Python blocks lose their line breaks:** ChatGPT's copy flattens its runnable Python blocks onto one line before the plugin sees them. Use the code block's own "Copy code" icon instead.
 
 ---
 
