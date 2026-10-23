@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
     headerDowngradeLevel: 0,
     convertMathDelimiters: true,
     formatHorizontalRules: true,
+    removeHorizontalRules: false,
     paddingBeforeCodeblock: true,
     paddingAfterCodeblock: true,
     inlineSingleLineCodeblocks: false,
@@ -37,7 +38,8 @@ function stripTrackingParams(text) {
         'fbclid', 'gclid', 'msclkid', 'yclid', 'mc_cid', 'mc_eid', 'igshid'
     ];
 
-    const urlRegex = /\bhttps?:\/\/[^\s()<>`"\[\]]+/g;
+    // Fix parentheses inside URLs
+    const urlRegex = /\bhttps?:\/\/(?:[^\s()<>`"\[\]]|\([^\s()<>`"\[\]]*\))+/g;
 
     const cleanUrl = (match) => {
         try {
@@ -172,8 +174,29 @@ function convertMathDelimiters(text) {
     // Split on inline code spans so delimiters quoted inside them are left untouched.
     return text.split(/(`.+?`)/).map((part, i) => {
         if (i % 2 === 1) return part;
-        part = part.replace(/\\\[([\s\S]*?)\\\]/g, (_, inner) => '$$' + inner + '$$');
-        return part.replace(/\\\(([\s\S]*?)\\\)/g, (_, inner) => '$' + inner + '$');
+        // A link destination matches first, so the converter's escaped \( \) in URLs survive.
+        part = part.replace(/(\]\((?:\\.|[^\\)\n])*\))|\\\[([\s\S]*?)\\\]/g,
+            (_, link, inner) => link || '$$' + inner + '$$');
+        return part.replace(/(\]\((?:\\.|[^\\)\n])*\))|\\\(([\s\S]*?)\\\)/g,
+            (_, link, inner) => link || '$' + inner + '$');
+    }).join('');
+}
+
+// The converter writes a URL's parens as \( \), which Obsidian doesn't resolve. Restore
+// them, percent-encoding instead when unbalanced so the link still closes.
+function unescapeLinkParens(text) {
+    return text.split(/(^[ \t]*```[a-zA-Z0-9+#\-_]*[ \t]*\r?\n[\s\S]*?^[ \t]*```[ \t]*(?:\r?\n|$)|`.+?`)/m).map((part, i) => {
+        if (i % 2 === 1) return part;
+        return part.replace(/(^|[^\\])\]\(((?:\\.|[^\s()\\])+)/g, (m, pre, dest) => {
+            const bare = dest.replace(/\\([()])/g, '$1');
+            let depth = 0;
+            for (const ch of bare) {
+                if (ch === '(') depth++;
+                else if (ch === ')' && --depth < 0) break;
+            }
+            const fixed = depth === 0 ? bare : dest.replace(/\\\(/g, '%28').replace(/\\\)/g, '%29');
+            return pre + '](' + fixed;
+        });
     }).join('');
 }
 
@@ -197,6 +220,27 @@ function formatHorizontalRules(text) {
     return text.replace(/(^---[ \t]*)(\n)([^\n])/gm, '$1\n\n$3');
 }
 
+// Option to remove horizontal rules entirely.
+function removeHorizontalRules(text) {
+    // Frontmatter fences look like rules but must survive a paste into a new note.
+    const frontmatter = text.match(/^---[ \t]*\r?\n(?![ \t]*\r?\n)[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/);
+    const head = frontmatter ? frontmatter[0] : '';
+    const isBlank = (line) => /^[ \t\xA0\r]*$/.test(line);
+    const lines = text.slice(head.length).split('\n');
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+        const rule = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*\r?$/.exec(lines[i]);
+        // A dash line directly under text is a heading underline, not a rule.
+        const underline = rule && rule[1] === '-' && out.length > 0 && !isBlank(out[out.length - 1]);
+        if (!rule || underline) {
+            out.push(lines[i]);
+            continue;
+        }
+        while (i + 1 < lines.length && isBlank(lines[i + 1])) i++;
+    }
+    return head + out.join('\n');
+}
+
 function tightenRuleHeadingGap(text) {
     // Removes blank line between a horizontal rule and a heading that directly follows it.
     return text.replace(/(^[ \t]*-{3,}[ \t]*\r?\n)(?:[ \t\xA0]*\r?\n)+([ \t]*#{1,6}[ \t])/gm, '$1$2');
@@ -208,7 +252,8 @@ function formatTablePadding(text) {
     // \r so a blank line still counts as blank in CRLF text.
     const isBlank = (line) => /^[ \t\xA0\r]*$/.test(line);
     // `||` doesn't render as an empty cell; a space does. Escaped `\|` never matches.
-    const padEmptyCells = (row) => row.replace(/\|(?=\|)/g, '| ');
+    // The converter escapes a cell's `\|` to `\\|`, which Obsidian splits on; one backslash keeps it whole.
+    const fixRow = (row) => row.replace(/(^|[^\\])\\\\\|/g, '$1\\|').replace(/\|(?=\|)/g, '| ');
     const isDelimRow = (line) => {
         if (!line.includes('|')) return false;
         const cells = line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|');
@@ -230,10 +275,10 @@ function formatTablePadding(text) {
         while (out.length > 0 && isBlank(out[out.length - 1])) out.pop();
         if (out.length > 0) out.push(blank);
 
-        out.push(padEmptyCells(lines[i]), lines[i + 1]);
+        out.push(fixRow(lines[i]), lines[i + 1]);
         i += 2;
         while (i < lines.length && isPipeRow(lines[i])) {
-            out.push(padEmptyCells(lines[i]));
+            out.push(fixRow(lines[i]));
             i++;
         }
 
@@ -264,7 +309,8 @@ function stripEmojis(text, allowlist, stripTechnical) {
     // Matches a run of emoji chars together with any spaces/tabs on either side, so we
     // can collapse to a single space only when the emoji sat between two words.
     const chars = EMOJI_RANGES + (stripTechnical ? TECHNICAL_RANGE : '');
-    const emojiRun = new RegExp('([ \\t]*)[' + chars + ']+([ \\t]*)', 'gu');
+    // Space-separated emoji (🚀 ✅) form one run, or each match re-adds the space the last one ate.
+    const emojiRun = new RegExp('([ \\t]*)[' + chars + ']+(?:[ \\t]+[' + chars + ']+)*([ \\t]*)', 'gu');
     // With whitespace on one side only, keep a space unless the other side is punctuation.
     const isBoundary = (ch) => !ch || ch === '\n' || ch === '\r' || /\p{P}/u.test(ch);
     const collapse = (m, before, after, offset, string) => {
@@ -296,7 +342,8 @@ function stripEmojis(text, allowlist, stripTechnical) {
     };
 
     return text.replace(emojiRun, (m, before, after, offset, string) => {
-        const kept = keptOf(m.slice(before.length, m.length - after.length));
+        const kept = m.slice(before.length, m.length - after.length)
+            .split(/[ \t]+/).map(keptOf).filter(Boolean).join(' ');
         if (!kept) return collapse(m, before, after, offset, string);
         return before + kept + after;
     });
@@ -362,6 +409,12 @@ function preprocessHtml(html, plainText = '') {
         '<' + tag + '>'
         + inner.replace(/<\/?(?:div|p|section|article|header|footer|figure)\b[^>]*>/gi, ' ')
         + '</' + tag + '>');
+
+    // The converter only reads a checkbox whose parent is the <li>; ChatGPT nests it in divs.
+    html = html.replace(/(<li\b[^>]*>(?:\s*<(?!\/)[^>]*>)*?\s*)<input\b([^>]*)>/gi, (m, lead, attrs) =>
+        /\btype\s*=\s*["']?checkbox\b/i.test(attrs)
+            ? lead + (/(?:^|\s)checked(?=[\s=\/]|$)/i.test(attrs) ? '[x] ' : '[ ] ')
+            : m);
 
     // One cell is a fragment of a table, not a table — keep just its contents, or the
     // paste becomes a useless 1x1 grid.
@@ -673,7 +726,7 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     if (!rawOnly) {
                         const converted = resolveRawText(htmlToMarkdown(preprocessHtml(html, plainText)), plainText);
                         if (converted !== plainText) {
-                            let structured = unwrapCodeFences(converted);
+                            let structured = unwrapCodeFences(unescapeLinkParens(converted));
                             structured = condenseBlankLines(structured, this.settings.condenseMode);
                             structured = formatBlockquotePadding(formatTablePadding(structured));
                             result = stripTrailingWhitespaces(structured).trim();
@@ -818,6 +871,11 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                     text = downgradeHeaders(text, this.settings.headerDowngradeLevel);
                 }
 
+                // Remove horizontal rules (before spacing, so heading spacing applies to what's left)
+                if (this.settings.removeHorizontalRules) {
+                    text = removeHorizontalRules(text);
+                }
+
                 // Condense blank lines
                 if (this.settings.condenseMode !== 'off') {
                     text = condenseBlankLines(text, this.settings.condenseMode);
@@ -830,6 +888,8 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                         this.settings.headingRemoveBlankBefore,
                         this.settings.headingRemoveBlankAfter);
                 }
+
+                text = unescapeLinkParens(text);
 
                 // Convert math delimiters
                 if (this.settings.convertMathDelimiters) {
@@ -1092,6 +1152,16 @@ class CleanAIPasteSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.formatHorizontalRules)
                 .onChange(async (value) => {
                     this.plugin.settings.formatHorizontalRules = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Remove horizontal rules')
+            .setDesc('Strips the separators (---) AI chats put between sections.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.removeHorizontalRules)
+                .onChange(async (value) => {
+                    this.plugin.settings.removeHorizontalRules = value;
                     await this.plugin.saveSettings();
                 }));
 
