@@ -20,6 +20,7 @@ When you copy text from an AI web interface, the result in Obsidian is often clu
 | **ASCII Tables**  | `+---+  +---+` _(alignment collapsed)_          | `+---+     +---+` _(spacing preserved)_   |
 | **Code Blocks**   | `python`<br>` ``` `<br>`print("hi")`<br>` ``` ` | ` ```python `<br>`print("hi")`<br>` ``` ` |
 | **Math (LaTeX)**  | `\( x = y \)`                                   | `$ x = y $`                               |
+| **Rendered Math** | `∣a∣2=a2∣a∣2=a2` _(DeepSeek)_                   | `$\|a\|^2=a^2$`                           |
 | **Tracking URLs** | `https://example.com/?utm_source=chatgpt.com`   | `https://example.com/`                    |
 
 ---
@@ -50,7 +51,7 @@ Under **Standard**, two sub-options control the blank lines around headings. Obs
 - **Unbold Headers** — Strips bold markers from Markdown headers (`**## Header**` → `## Header`).
 - **Unbold Links** — Removes bold formatting wrapped around Markdown links (`**[Link](url)**` → `[Link](url)`).
 - **Header Downgrade Level** — Shifts pasted headers down by 1–3 levels (e.g. `#` → `##`). Capped at `######`.
-- **Convert Math Delimiters** — Converts AI-style LaTeX (`\(`, `\)`, `\[`, `\]`) to Obsidian's native `$` and `$$`. Leaves content inside inline code untouched.
+- **Convert Math Delimiters** — Converts AI-style LaTeX (`\(`, `\)`, `\[`, `\]`) to Obsidian's native `$` and `$$`. Leaves content inside inline code untouched. Math a site has already drawn (DeepSeek, and others using KaTeX or MathML) is always rebuilt as `$`/`$$` LaTeX, since it otherwise pastes as garbled text.
 - **Format Horizontal Lines** — Ensures a blank line both before and after `---` separators so they render correctly. (A heading placed directly after a rule is always kept tight against it — see below.)
 - **Remove Horizontal Lines** _(off by default)_ — Strips the `---` separators AI chats put between sections, for themes that already draw a line under headings.
 
