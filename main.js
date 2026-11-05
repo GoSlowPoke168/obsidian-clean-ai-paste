@@ -372,6 +372,191 @@ const KNOWN_CODE_LANGUAGES = new Set([
 // a closing tag. Deliberately strict: prose that merely mentions <div> does not match.
 const MARKUP_SOURCE = /^\s*<(?:\?xml|!DOCTYPE|[A-Za-z][\w:.-]*)[\s\S]*<\/[A-Za-z][\w:.-]*>\s*$/;
 
+// TeX for the Unicode characters MathML spells formulas with.
+const TEX_SYMBOLS = {
+    '∫': '\\int', '∬': '\\iint', '∮': '\\oint', '∑': '\\sum', '∏': '\\prod', '−': '-', '∣': '\\mid',
+    '⋅': '\\cdot', '·': '\\cdot', '×': '\\times', '÷': '\\div', '±': '\\pm', '∓': '\\mp',
+    '≤': '\\le', '≥': '\\ge', '≠': '\\ne', '≈': '\\approx', '≡': '\\equiv', '∼': '\\sim', '≃': '\\simeq',
+    '≅': '\\cong', '∝': '\\propto', '≪': '\\ll', '≫': '\\gg', '→': '\\to', '←': '\\leftarrow',
+    '↔': '\\leftrightarrow', '⇒': '\\Rightarrow', '⇐': '\\Leftarrow', '⇔': '\\Leftrightarrow', '↦': '\\mapsto',
+    '∞': '\\infty', '∂': '\\partial', '∇': '\\nabla', '∈': '\\in', '∉': '\\notin', '∋': '\\ni',
+    '⊂': '\\subset', '⊃': '\\supset', '⊆': '\\subseteq', '⊇': '\\supseteq', '∪': '\\cup', '∩': '\\cap',
+    '∖': '\\setminus', '∅': '\\emptyset', '∀': '\\forall', '∃': '\\exists', '¬': '\\neg', '∧': '\\land',
+    '∨': '\\lor', '…': '\\ldots', '⋯': '\\cdots', '⋮': '\\vdots', '⋱': '\\ddots', '∘': '\\circ',
+    '⊕': '\\oplus', '⊗': '\\otimes', '⊥': '\\perp', '∥': '\\parallel', '⟨': '\\langle', '⟩': '\\rangle',
+    '⌊': '\\lfloor', '⌋': '\\rfloor', '⌈': '\\lceil', '⌉': '\\rceil', '‖': '\\|', 'ℏ': '\\hbar', 'ℓ': '\\ell',
+    '′': "'", '″': "''", '\u2061': '', '\u2062': '', '\u2063': '', '\\': '\\backslash',
+    '{': '\\{', '}': '\\}', '%': '\\%', '#': '\\#', '&': '\\&', '$': '\\$', '_': '\\_',
+    'ε': '\\varepsilon', 'ϵ': '\\epsilon', 'φ': '\\varphi', 'ϕ': '\\phi', 'ϑ': '\\vartheta', 'ο': 'o'
+};
+'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho varsigma sigma tau upsilon phi chi psi omega'
+    .split(' ').forEach((name, i) => { TEX_SYMBOLS[String.fromCharCode(0x3b1 + i)] ??= '\\' + name; });
+'Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega'
+    .split(' ').forEach((name, i) => { TEX_SYMBOLS['ΓΔΘΛΞΠΣΥΦΨΩ'[i]] = '\\' + name; });
+
+const TEX_FUNCTIONS = new Set(('sin cos tan cot sec csc sinh cosh tanh coth arcsin arccos arctan '
+    + 'log ln lg exp lim limsup liminf max min sup inf det dim ker deg gcd arg Pr hom').split(' '));
+const TEX_FONTS = { 'double-struck': 'mathbb', bold: 'mathbf', script: 'mathcal', fraktur: 'mathfrak',
+    'sans-serif': 'mathsf', monospace: 'mathtt', 'bold-italic': 'boldsymbol', normal: 'mathrm' };
+const TEX_ACCENTS = { '^': '\\hat', 'ˆ': '\\hat', 'ˉ': '\\bar', '¯': '\\bar', '→': '\\vec', '⃗': '\\vec',
+    '~': '\\tilde', '˜': '\\tilde', '˙': '\\dot', '¨': '\\ddot', '‾': '\\overline', '⏞': '\\overbrace' };
+const TEX_UNDER_ACCENTS = { '‾': '\\underline', '_': '\\underline', '⏟': '\\underbrace' };
+const TEX_SPACES = { '\u2009': '\\,', '\u205f\u200a': '\\:', '\u2005\u200a': '\\;', '\u00a0': '\\ ', '\u2003': '\\quad' };
+const TEX_SPACE_WIDTHS = [[0.1667, '\\,'], [0.2222, '\\:'], [0.2778, '\\;'], [1, '\\quad'], [2, '\\qquad'], [-0.1667, '\\!']];
+const TEX_MATRICES = { '(': 'pmatrix', '[': 'bmatrix', '|': 'vmatrix', '∣': 'vmatrix', '‖': 'Vmatrix', '{': 'Bmatrix' };
+// Operators that take limits, so under/over scripts on them are written as _ and ^.
+const TEX_LIMIT_BASE = /^\\(?:sum|prod|coprod|int|iint|oint|bigcup|bigcap|lim|limsup|liminf|max|min|sup|inf|det|operatorname\{[^{}]*\})$/;
+
+function parseMathml(mathml) {
+    const decode = (s) => s.replace(/&(?:#(\d+)|#x([\da-f]+)|(\w+));/gi, (m, dec, hex, name) =>
+        dec ? String.fromCodePoint(+dec) : hex ? String.fromCodePoint(parseInt(hex, 16))
+            : ({ lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", nbsp: '\u00a0' })[name.toLowerCase()] ?? m);
+    const root = { name: '', attrs: '', kids: [] }, stack = [root];
+    for (const m of mathml.matchAll(/<(\/?)([\w:-]+)([^>]*?)(\/?)>|([^<]+)/g)) {
+        const top = stack[stack.length - 1];
+        if (m[5] !== undefined) top.kids.push(decode(m[5]));
+        else if (m[1]) { if (stack.length > 1) stack.pop(); }
+        else {
+            const node = { name: m[2].toLowerCase(), attrs: m[3], kids: [] };
+            top.kids.push(node);
+            if (!m[4]) stack.push(node);
+        }
+    }
+    return root;
+}
+
+// Rebuilds TeX from presentation MathML, the only copy of a formula's structure Chrome puts
+// on the clipboard (KaTeX's <annotation> holding the source is dropped).
+function mathmlToTex(mathml) {
+    const attr = (n, k) => (n.attrs.match(new RegExp('\\b' + k + '\\s*=\\s*["\']([^"\']*)')) || [])[1];
+    const text = (n) => n.kids.filter((k) => typeof k === 'string').join('');
+    const elems = (n) => n.kids.filter((k) => typeof k !== 'string');
+    const join = (parts) => parts.reduce((out, p) => {
+        if (!p) return out;
+        const gap = (/\\[A-Za-z]+$/.test(out) && /^[A-Za-z0-9]/.test(p))
+            || (/[_^][A-Za-z0-9]$/.test(out) && /^[A-Za-z0-9\\]/.test(p));
+        return out + (gap ? ' ' : '') + p;
+    }, '');
+    const group = (t) => t.length === 1 || /^\\[A-Za-z]+(?:\{[^{}]*\})?$/.test(t) ? t : '{' + t + '}';
+    const chars = (t, inMi) => join([...t].map((c) => inMi && c === '∣' ? '|' : TEX_SYMBOLS[c] ?? c));
+    const isFence = (n) => n && n.name === 'mo' && attr(n, 'fence') === 'true';
+    const delim = (c) => c ? (c === '∣' ? '|' : TEX_SYMBOLS[c] ?? c) : '.';
+    const scripts = (base, sub, sup) => {
+        let out = base;
+        if (sub !== undefined) out += '_' + group(sub);
+        if (sup !== undefined) out += /^'+$/.test(sup) ? sup : '^' + group(sup);
+        return out;
+    };
+
+    const token = (n) => {
+        const t = text(n).trim(), font = TEX_FONTS[attr(n, 'mathvariant')];
+        if (/^[A-Za-z]{2,}$/.test(t)) return TEX_FUNCTIONS.has(t) ? '\\' + t : '\\operatorname{' + t + '}';
+        if (font && (font !== 'mathrm' || /^[A-Za-z]$/.test(t))) return '\\' + font + '{' + chars(t, true) + '}';
+        return chars(t, n.name === 'mi');
+    };
+
+    const table = (n, env) => '\\begin{' + env + '}'
+        + elems(n).map((tr) => elems(tr).filter((td) => td.name === 'mtd')
+            .map((td) => conv(td).replace(/^\{\}/, '')).join(' & ')).join(' \\\\ ')
+        + '\\end{' + env + '}';
+
+    const row = (kids) => {
+        const first = kids[0], last = kids[kids.length - 1];
+        if (!isFence(first)) return join(kids.map(conv));
+        const closed = kids.length > 1 && isFence(last);
+        const inner = kids.slice(1, closed ? -1 : undefined);
+        const open = text(first).trim(), close = closed ? text(last).trim() : '';
+        const only = inner.length === 1 ? inner[0] : null;
+        if (only && only.name === 'mtable') return table(only, open === '{' && !close ? 'cases' : TEX_MATRICES[open] || 'matrix');
+        if (only && only.name === 'mfrac' && open === '(' && close === ')' && parseFloat(attr(only, 'linethickness')) === 0) {
+            const [a, b] = elems(only).map(conv);
+            return '\\binom{' + a + '}{' + b + '}';
+        }
+        return join(['\\left' + delim(open), ...inner.map(conv), '\\right' + delim(close)]);
+    };
+
+    function conv(n) {
+        if (typeof n === 'string') return '';
+        const k = elems(n), c = k.map(conv);
+        switch (n.name) {
+            case 'mi': case 'mn': case 'mo':
+                return token(n) + (n.name === 'mo' && attr(n, 'separator') === 'true' ? ' ' : '');
+            case 'mtext': {
+                const t = text(n);
+                if (!t.trim()) return TEX_SPACES[t] ?? '\\ ';
+                return '\\text{' + t.replace(/[{}%#&$_]/g, '\\$&') + '}';
+            }
+            case 'mspace': {
+                if (attr(n, 'linebreak') === 'newline') return ' \\\\ ';
+                const w = parseFloat(attr(n, 'width'));
+                return (TEX_SPACE_WIDTHS.find(([em]) => Math.abs(em - w) < 0.01) || [])[1] || '';
+            }
+            case 'msup': return scripts(group(c[0]), undefined, c[1]);
+            case 'msub': return scripts(group(c[0]), c[1]);
+            case 'msubsup': return scripts(group(c[0]), c[1], c[2]);
+            case 'mfrac':
+                return parseFloat(attr(n, 'linethickness')) === 0
+                    ? '{' + c[0] + ' \\atop ' + c[1] + '}' : '\\frac{' + c[0] + '}{' + c[1] + '}';
+            case 'msqrt': return '\\sqrt{' + join(c) + '}';
+            case 'mroot': return '\\sqrt[' + c[1] + ']{' + c[0] + '}';
+            case 'mover': {
+                const mark = text(k[1] || n).trim(), stretchy = attr(k[1] || n, 'stretchy') === 'true';
+                if (attr(n, 'accent') === 'true' && TEX_ACCENTS[mark]) {
+                    const cmd = stretchy ? { '\\hat': '\\widehat', '\\tilde': '\\widetilde' }[TEX_ACCENTS[mark]] || TEX_ACCENTS[mark] : TEX_ACCENTS[mark];
+                    return cmd + '{' + c[0] + '}';
+                }
+                return TEX_LIMIT_BASE.test(c[0]) ? scripts(c[0], undefined, c[1]) : '\\overset{' + c[1] + '}{' + c[0] + '}';
+            }
+            case 'munder': {
+                const mark = text(k[1] || n).trim();
+                if (attr(n, 'accentunder') === 'true' && TEX_UNDER_ACCENTS[mark]) return TEX_UNDER_ACCENTS[mark] + '{' + c[0] + '}';
+                return TEX_LIMIT_BASE.test(c[0]) ? scripts(c[0], c[1]) : '\\underset{' + c[1] + '}{' + c[0] + '}';
+            }
+            case 'munderover':
+                return TEX_LIMIT_BASE.test(c[0]) ? scripts(c[0], c[1], c[2])
+                    : '\\overset{' + c[2] + '}{\\underset{' + c[1] + '}{' + c[0] + '}}';
+            case 'mtable': return table(n, /^right left/.test(attr(n, 'columnalign') || '') ? 'aligned' : 'matrix');
+            case 'semantics': return c[0] || '';
+            case 'annotation': case 'annotation-xml': return '';
+            case 'mrow': return k.length ? row(k) : '{}';
+            default: return row(k);
+        }
+    }
+
+    return conv(parseMathml(mathml)).trim();
+}
+
+// KaTeX pairs each formula's MathML with a drawn copy that pastes as garbled text, so drop
+// the drawing and write the MathML out as $tex$ (or a $$tex$$ block).
+function convertRenderedMath(html) {
+    let out = '', from = 0, m;
+    const drawing = /<span\b[^>]*\bclass="katex-html"[^>]*>/gi;
+    while ((m = drawing.exec(html))) {
+        out += html.slice(from, m.index);
+        const tag = /<(\/?)span\b[^>]*>/gi;
+        tag.lastIndex = drawing.lastIndex;
+        let depth = 1, t;
+        while (depth && (t = tag.exec(html))) depth += t[1] ? -1 : 1;
+        from = drawing.lastIndex = t ? tag.lastIndex : html.length;
+    }
+    html = out + html.slice(from);
+
+    return html.replace(/<math\b([^>]*)>([\s\S]*?)<\/math>/gi, (match, attrs, body) => {
+        const tex = mathmlToTex(body).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        if (!tex) return '';
+        return /\bdisplay\s*=\s*["']block/i.test(attrs) ? '<div>$$' + tex + '$$</div>' : '$' + tex + '$';
+    });
+}
+
+// Desktop only: the system clipboard, which a paste-as-plain-text event does not expose.
+function clipboardHasHtml() {
+    try {
+        return require('electron').clipboard.availableFormats().includes('text/html');
+    } catch (e) {
+        return false;
+    }
+}
+
 // Pre-process clipboard HTML to fix code blocks and line breaks before htmlToMarkdown
 function preprocessHtml(html, plainText = '') {
     // Pasted markup is swallowed by Obsidian's renderer, so fence it. Built from plainText
@@ -382,6 +567,8 @@ function preprocessHtml(html, plainText = '') {
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         return '<pre><code class="language-' + lang + '">' + escaped + '</code></pre>';
     }
+
+    html = convertRenderedMath(html);
 
     // Normalize Gemini code blocks, turning Gemini's code block from <code-block>
     // to a <pre><code> (the same clean shape as ChatGPT/Claude) so htmlToMarkdown produces a proper fenced block.
@@ -691,6 +878,12 @@ module.exports = class CleanAIPastePlugin extends Plugin {
             const target = keyEvt.target;
             if (!(target instanceof HTMLElement) || !target.closest('.cm-editor')) return;
 
+            // Raw is Obsidian's own paste-as-plain-text, so mark the paste and let it run natively.
+            if (!this.settings.bypassLegacyStructure) {
+                this.plainPasteAt = Date.now();
+                return;
+            }
+
             keyEvt.preventDefault();
             keyEvt.stopPropagation();
 
@@ -764,6 +957,13 @@ module.exports = class CleanAIPastePlugin extends Plugin {
                 if (evt.defaultPrevented) return;
 
                 const clipboardData = evt.clipboardData;
+                // Paste as plain text (shortcut or menu) stays native; the menu shows up as a
+                // paste with the clipboard's HTML withheld.
+                const plainPaste = Date.now() - (this.plainPasteAt || 0) < 1000
+                    || (clipboardData && !clipboardData.types.includes('text/html') && clipboardHasHtml());
+                this.plainPasteAt = 0;
+                if (plainPaste) return;
+
                 if (!clipboardData || clipboardData.types.includes('Files')) return;
 
                 const hasHtml = clipboardData.types.includes('text/html');
